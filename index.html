@@ -1,0 +1,2374 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Opera Comică App</title>
+
+<!-- ============ SETĂRI PENTRU HOME SCREEN (APP NATIVĂ) ============ -->
+<!-- NIVEL 3 (headless): fișier static pe Netlify — fără scriptlet server-side Apps
+     Script (<? ?> / <?!= ?>), care nu are niciun sens în afara HtmlService. Iconița e
+     acum o constantă simplă (vezi și ICON_URL în <script> de mai jos). Manifestul PWA
+     trebuie totuși să includă tokenul curent de sesiune în start_url, la fel ca înainte
+     (vezi audit 19.09.2026, claude/audit-sesiune-ios-localstorage-iframe.md) — asta se
+     face acum client-side, în funcția refreshManifestLink_() din <script>, care
+     populează href-ul lui #manifest-link de mai jos la runtime (înlocuiește fostul
+     MANIFEST_HREF calculat în doGet(), eliminat — vezi
+     claude/blueprint-migrare-headless-doPost.md). -->
+<link rel="icon" type="image/png" id="favicon-link" href="https://lh3.googleusercontent.com/d/1g8dFq3FmnDYvMCKls-ut__A9qVG6tjF6">
+<link rel="manifest" id="manifest-link" href="">
+<!-- iOS foloseşte apple-touch-icon pentru iconița de pe ecranul de start, nu manifest.json -->
+<link rel="apple-touch-icon" href="https://lh3.googleusercontent.com/d/1g8dFq3FmnDYvMCKls-ut__A9qVG6tjF6">
+<link rel="apple-touch-icon" sizes="192x192" href="https://lh3.googleusercontent.com/d/1g8dFq3FmnDYvMCKls-ut__A9qVG6tjF6">
+<meta name="apple-mobile-web-app-title" content="Opera Comică">
+<meta name="application-name" content="Opera Comică">
+<!-- Dezactivat intenționat: modul "standalone" pe iOS (deschis de pe Home Screen) rulează într-un
+     WKWebView izolat de Safari, iar iOS șterge localStorage la închiderea aplicației dacă apar
+     redirecționări (specifice Google Apps Script) în lanțul de navigare — utilizatorii erau
+     forțați să reintroducă codul OTP de fiecare dată. Fix: forțăm deschiderea ca tab normal
+     Safari, unde localStorage e persistent. Vezi și display:"browser" în manifest, mai sus.
+<meta name="apple-mobile-web-app-capable" content="yes"> -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#3B1E38">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FAF8F3; --bg-alt:#F1ECE1; --ink:#241F33; --muted:#79726B; --border:#E5DFD1;
+    --card-bg:#FFFFFF;
+    --brand-1:#3B1E38; --brand-2:#2C1529; --brand-text:#F6ECDD;
+    --gold:#C9982E; --gold-soft:#EFDDA8;
+    --navy:#1E2A45; --navy-2:#223055;
+    --sm:#8E3B46; --sm-soft:#F4E1E1;
+    --mz:#1F6E64; --mz-soft:#DDEEEA;
+    --ug:#B9781A; --ug-soft:#F6E7CE;
+    --cu:#4C7A4A; --cu-soft:#E4EEE0;
+    --err:#A03333;
+    --shadow: 0 4px 18px rgba(36,31,51,0.08);
+    --shadow-lg: 0 12px 40px rgba(36,31,51,0.22);
+    --header-h: 80px; 
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: var(--bg); color: var(--ink);
+    font-family: 'Work Sans', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+  h1,h2,h3{ font-family:'Fraunces', Georgia, serif; font-weight:600; letter-spacing:-0.01em; }
+  button{ font-family:inherit; cursor:pointer; }
+  input,textarea,select{ font-family:inherit; }
+  ::selection{ background: var(--gold-soft); }
+  [hidden]{ display:none !important; }
+  
+  /* SVG Icon Styles */
+  .icon-svg { display: inline-flex; align-items: center; justify-content: center; }
+  .icon-svg svg { width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  .card.is-hidden,
+  .category-block.is-hidden,
+  .day-section.is-hidden { display: none !important; }
+
+  /* Evidențiere termen căutat în interiorul cardurilor (Program Săptămânal / Stagiune) */
+  .highlight-match{
+    background: var(--gold-soft);
+    color: var(--ink);
+    border-radius: 3px;
+    padding: 0 2px;
+    margin: 0 -2px;
+    font-weight: 600;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  /* ============ COMPONENTE COMUNE ============ */
+  .btn{
+    padding: 9px 18px; border-radius:999px; border:1px solid var(--border);
+    background: var(--bg-alt); font-size:13.5px; font-weight:600; color: var(--ink);
+  }
+  .btn.primary{ background: var(--ink); color:#fff; border-color: var(--ink); }
+  .btn.primary:hover{ opacity:.9; }
+  .btn.danger{ background: var(--err); color:#fff; border-color: var(--err); }
+  .btn.danger:hover{ opacity:.85; }
+  .btn:hover{ border-color: var(--gold); }
+  .btn:disabled{ opacity:.55; cursor:default; }
+
+  .pill-btn{
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(246,236,221,0.35);
+    color: var(--brand-text); padding: 9px 16px; border-radius: 999px; font-size: 13px; font-weight: 500;
+    display:flex; align-items:center; gap:7px; transition: background .15s ease, transform .1s ease; white-space: nowrap;
+  }
+  .pill-btn:hover{ background: rgba(255,255,255,0.16); }
+  .pill-btn:active{ transform: scale(0.97); }
+  .pill-btn.active{ background: var(--gold); border-color: var(--gold); color: #2C1529; font-weight: 600; }
+  .pill-btn:disabled{ opacity:0.55; cursor:default; }
+
+  .overlay{
+    position: fixed; inset:0; background: rgba(36,31,51,0.45);
+    display:none; align-items:center; justify-content:center; z-index: 2000; padding: 16px;
+  }
+  .overlay.show{ display:flex; }
+  .modal{
+    background: var(--card-bg); border-radius: 18px; max-width: 560px; width:100%;
+    max-height: 88vh; overflow-y:auto; box-shadow: var(--shadow-lg); padding: 24px;
+    position:relative; animation: pop .16s ease;
+  }
+  @keyframes pop{ from{ transform: scale(0.96); opacity:0; } to{ transform:scale(1); opacity:1; } }
+  .modal-close{
+    position:absolute; top:16px; right:16px; background: var(--bg-alt); border:none;
+    width:32px; height:32px; border-radius:50%; font-size:16px; color:var(--muted);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .modal-close:hover{ background: var(--border); }
+  .modal h3{ margin: 0 6px 4px 0; font-size: 21px; padding-right: 40px; }
+  .modal-actions{ display:flex; gap:8px; margin-top: 16px; justify-content:flex-end; }
+  .save-msg{ font-size:12.5px; color: var(--mz); margin-top:8px; text-align:right; min-height:16px; font-weight:500; }
+
+  .toast{
+    position: fixed; bottom: 20px; left:50%; transform: translateX(-50%);
+    background: var(--ink); color:#fff; padding: 11px 20px; border-radius: 999px;
+    font-size: 13.5px; box-shadow: var(--shadow-lg); z-index: 3000;
+    opacity:0; pointer-events:none; transition: opacity .2s ease, transform .2s ease;
+  }
+  .toast.show{ opacity:1; transform: translateX(-50%) translateY(-4px); }
+
+  /* ============ STILURI HEADER UNIC SI FIX ============ */
+  .app-header {
+    position: fixed !important;
+    top: 0; left: 0; right: 0;
+    z-index: 1000 !important;
+    background: linear-gradient(155deg, var(--brand-1), var(--brand-2));
+    color: var(--brand-text);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+  }
+  .app-header .inner {
+    max-width: 1080px; margin: 0 auto; padding: 12px 20px 12px;
+    display:flex; align-items:center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .brand-block { cursor: pointer; transition: opacity 0.15s ease; }
+  .brand-block:hover { opacity: 0.85; }
+  .brand-block h1 { margin:0; font-size: clamp(20px, 3.4vw, 26px); color: var(--brand-text); }
+  .brand-block .subtitle { margin: 2px 0 0; font-size: 12px; color: var(--gold-soft); opacity:.9; }
+  .header-actions { display:flex; align-items:center; gap: 10px; flex-wrap: wrap; }
+
+  /* SIDE MENU (HAMBURGER) */
+  #menu-overlay { align-items: flex-start; justify-content: flex-end; padding: 0; }
+  .side-menu {
+    background: var(--card-bg); width: 280px; height: 100vh; padding: 24px;
+    box-shadow: -4px 0 24px rgba(0,0,0,0.15); transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1); display: flex; flex-direction: column;
+  }
+  #menu-overlay.show .side-menu { transform: translateX(0); }
+  .nav-btn {
+    background: transparent; border: 1px solid transparent; text-align: left;
+    padding: 12px 16px; border-radius: 12px; font-size: 15px; font-weight: 600;
+    color: var(--muted); transition: all 0.15s ease; width: 100%; display: flex; align-items: center; gap: 10px;
+  }
+  .nav-btn:hover { background: var(--bg-alt); color: var(--ink); }
+  .nav-btn.active { background: var(--gold-soft); color: var(--brand-2); border-color: var(--gold); }
+  
+  .header-controls-block {
+    background: var(--bg); padding: 8px 20px 10px; border-bottom: 2px solid var(--border);
+  }
+  .header-controls-inner {
+    max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px;
+  }
+
+  /* Bara de Căutare Colapsabilă */
+  .collapsible-search-wrap {
+    display: none; margin-top: 4px; margin-bottom: 2px; animation: slideDown .2s ease-out;
+  }
+  .collapsible-search-wrap.show { display: block; }
+  @keyframes slideDown { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .search-toggle-btn {
+    flex: none; background: var(--card-bg); border: 1.5px solid var(--border); color: var(--ink);
+    display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s ease;
+  }
+  .search-toggle-btn:hover { border-color: var(--gold); }
+  .search-toggle-btn.active { background: var(--gold-soft); border-color: var(--gold); box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); }
+
+  .search-input {
+    width:100%; padding: 10px 14px 10px 40px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--card-bg) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%2379726B" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>') no-repeat 14px center;
+    font-size: 14px; color: var(--ink); outline: none;
+  }
+  .search-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+
+  .days-dropdown {
+    width: 100%; padding: 10px 16px; border-radius: 12px; border: 2px solid var(--gold);
+    background: var(--card-bg) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="%233B1E38" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l6 6 6-6"/></svg>') no-repeat right 14px center;
+    background-size: 18px; font-size: 15px; font-weight: 700; color: var(--brand-1); outline: none;
+    appearance:none; -webkit-appearance:none; cursor:pointer; box-shadow: var(--shadow);
+  }
+  .days-dropdown:focus { border-color: var(--ink); box-shadow: 0 0 0 3px var(--gold-soft); }
+
+  main { max-width: 1080px; margin: 0 auto; padding: 22px 20px 60px; }
+  
+  /* Paddings dinamice in functie de inaltimea headerului */
+  #mod-home, #mod-stagiune, #mod-saptamanal, #mod-hr, #mod-istoric {
+    padding-top: calc(var(--header-h) + 24px) !important;
+  }
+  
+  #mod-home { text-align: center; }
+  
+  footer { text-align:center; color: var(--muted); font-size:12px; padding: 10px 20px 30px; }
+
+  /* ============ ECRAN LOGIN ============ */
+  .auth-screen{
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+    background: linear-gradient(155deg, var(--brand-1), var(--brand-2));
+  }
+  .auth-card{
+    position: relative;
+    background: var(--card-bg); border-radius:20px; max-width:380px; width:100%;
+    padding: 32px 28px; box-shadow: var(--shadow-lg); text-align:center;
+  }
+  .auth-card h1{ margin:0 0 2px; font-size:26px; color:var(--brand-1); }
+
+  /* ============ COMUTATOR DE LIMBĂ RO / EN ============ */
+  .lang-toggle-btn{
+    display:flex; align-items:center; gap:6px; cursor:pointer; white-space:nowrap;
+    font-family:inherit; font-weight:700; font-size:13px; letter-spacing:.03em;
+  }
+  .lang-toggle-btn .icon-svg{ width:15px; height:15px; display:flex; }
+  .lang-toggle-btn .icon-svg svg{ width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .lang-toggle-btn:active{ transform: scale(0.96); }
+  /* Varianta de pe antetul aplicației (fundal închis) preia stilul pill-btn deja existent. */
+  .app-header .lang-toggle-btn{ background: rgba(255,255,255,0.08); border: 1px solid rgba(246,236,221,0.35); color: var(--brand-text); padding: 9px 14px; border-radius: 999px; transition: background .15s ease; }
+  .app-header .lang-toggle-btn:hover{ background: rgba(255,255,255,0.16); }
+  /* Varianta de pe ecranul de login — discretă, în colțul cardului de autentificare. */
+  .lang-toggle-auth{
+    position:absolute; top:16px; right:16px; z-index:5;
+    background: var(--bg-alt); border: 1px solid var(--border); color: var(--ink);
+    padding: 6px 11px; border-radius: 999px;
+  }
+  .lang-toggle-auth:hover{ background: var(--gold-soft); }
+  .auth-sub{ margin:0 0 22px; font-size:13px; color:var(--muted); }
+  .auth-card label{ display:block; text-align:left; font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin: 12px 0 4px; }
+  .auth-card input[type="email"], .auth-card input[type="password"], .auth-card input[type="text"]{
+    width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--border); font-size:15px; outline:none;
+  }
+  .auth-card input:focus{ border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+  .auth-pwd-wrap{ position:relative; }
+  .auth-pwd-wrap input[type="password"], .auth-pwd-wrap input[type="text"]{ padding-right:44px; }
+  .pwd-toggle-btn{
+    position:absolute; top:50%; right:6px; transform:translateY(-50%);
+    width:32px; height:32px; display:flex; align-items:center; justify-content:center;
+    background:transparent; border:none; border-radius:8px; color:var(--muted); cursor:pointer; padding:0;
+  }
+  .pwd-toggle-btn:hover{ background: var(--bg-alt); color: var(--ink); }
+  .pwd-toggle-btn .icon-svg{ width:19px; height:19px; display:flex; }
+  .pwd-toggle-btn .icon-svg svg{ width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  #auth-otp{ letter-spacing:6px; text-align:center; font-size:20px; }
+  .remember-me-wrap{ display: flex; align-items: center; gap: 8px; margin-top: 14px; text-align: left; font-size: 13px; color: var(--ink); cursor: pointer; text-transform: none !important; letter-spacing: 0 !important; font-weight: 500 !important;}
+  .remember-me-wrap input { width: 16px; height: 16px; accent-color: var(--brand-1); cursor: pointer; }
+  .auth-error{ color: var(--err); font-size:12.5px; min-height:18px; margin-top:8px; text-align:left; }
+  .auth-card .btn.primary{ width:100%; margin-top:14px; padding:12px; font-size:14.5px; }
+  .auth-card .btn{ width:100%; margin-top:8px; padding:12px; font-size:14.5px; }
+  .auth-loading{ margin-top:14px; font-size:13px; color:var(--muted); }
+  
+  .auth-hint-box { background: var(--bg-alt); padding: 14px; border-radius: 12px; margin-top: 18px; text-align: left; }
+  .auth-hint-box p { font-size: 12.5px; color: var(--muted); margin: 0 0 6px 0; line-height: 1.4; }
+  .auth-hint-box p:last-child { margin-bottom: 0; }
+  .auth-hint-box strong { color: var(--ink); }
+
+  /* ============ DASHBOARD ACASĂ ============ */
+  .home-hero { margin-bottom: 40px; }
+  .home-hero h2 { font-size: clamp(26px, 5vw, 34px); color: var(--brand-1); margin: 0 0 10px; }
+  .home-hero p { color: var(--muted); font-size: 15px; margin: 0; }
+  .home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; max-width: 900px; margin: 0 auto; }
+  .home-card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px;
+    padding: 32px 24px; text-align: left; cursor: pointer; transition: all .2s ease;
+    box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 14px;
+  }
+  .home-card:hover { transform: translateY(-4px); border-color: var(--gold); box-shadow: var(--shadow-lg); }
+  .home-card .icon { font-size: 30px; background: var(--bg-alt); width: 64px; height: 64px; border-radius: 16px; display: flex; align-items: center; justify-content: center; color: var(--brand-1); }
+  .home-card h3 { margin: 0; font-size: 20px; color: var(--ink); }
+  .home-card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+
+  /* ============ MODUL STAGIUNE ============ */
+  .mod-stagiune .filter-bar,
+  .header-controls-block .filter-bar { 
+    display:flex !important; flex-direction: row !important; flex-wrap: wrap !important; gap: 8px !important; align-items:center !important; 
+  }
+  .filter-chip{
+    display:flex; align-items:center; gap:7px; font-size: 12.5px; font-weight: 700;
+    padding: 6px 12px 6px 8px; border-radius: 999px; background: var(--card-bg);
+    border: 1.5px solid var(--border); color: var(--ink); transition: all .15s ease;
+  }
+  .filter-chip:hover{ border-color: var(--gold); }
+  .filter-chip .dot{ width:10px; height:10px; border-radius:50%; flex:none; }
+  .filter-chip.all.active{ background: var(--ink); border-color: var(--ink); color: #fff; }
+  .filter-chip.sm.active{ background: var(--sm); border-color: var(--sm); color: #fff; }
+  .filter-chip.mz.active{ background: var(--mz); border-color: var(--mz); color: #fff; }
+  .filter-chip.ug.active{ background: var(--ug); border-color: var(--ug); color: #fff; }
+  .filter-chip.cu.active{ background: var(--cu); border-color: var(--cu); color: #fff; }
+  .filter-chip.active .dot{ background: #fff; }
+  .dot.sm{ background: var(--sm); } .dot.mz{ background: var(--mz); } .dot.ug{ background: var(--ug); } .dot.cu{ background: var(--cu); }
+
+  .tabs-wrap{ position: relative; padding-top: 2px; }
+  .tabs{ display:flex; gap: 6px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: thin; }
+  .tabs::-webkit-scrollbar{ height:6px; }
+  .tabs::-webkit-scrollbar-thumb{ background: var(--border); border-radius:3px; }
+  .tab-btn{
+    flex: none; background: var(--card-bg); border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600; transition: all .15s ease;
+  }
+  .tab-btn.active{ background: var(--ink); color: #fff; border-color: var(--ink); }
+  .tab-btn:hover:not(.active){ border-color: var(--gold); color: var(--ink); }
+
+  .month-header{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom: 14px; flex-wrap:wrap; gap:8px; }
+  .month-header h2{ margin:0; font-size: clamp(20px,3vw,26px); }
+  .month-count{ font-size: 13px; color: var(--muted); }
+
+  .day-list{ display:flex; flex-direction:column; gap:8px; }
+  .day-row{
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px;
+    display:flex; align-items:flex-start; gap: 16px; cursor:pointer;
+    transition: box-shadow .15s ease, border-color .15s ease, transform .1s ease; position:relative; text-align:left;
+    scroll-margin-top: calc(var(--header-h, 80px) + 20px);
+  }
+  .day-row:hover{ box-shadow: var(--shadow); border-color: var(--gold); transform: translateY(-1px); }
+  .day-row.weekend{ background: var(--bg-alt); }
+  .day-row.today{ border: 2px solid var(--gold); }
+
+  /* Evidențiere temporară la navigarea automată către ziua curentă / cea mai apropiată */
+  .focus-flash{ border-radius: 10px; animation: focusFlashPulse 2.1s ease-out; }
+  @keyframes focusFlashPulse{
+    0%   { box-shadow: 0 0 0 4px var(--gold-soft); }
+    70%  { box-shadow: 0 0 0 4px var(--gold-soft); }
+    100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+  }
+  .day-date-col{ flex: none; width: 168px; display:flex; flex-direction:column; gap:1px; padding-top:1px; }
+  .day-date-col .dow-full{ font-size: 13.5px; font-weight:700; color: var(--ink); font-family:'Fraunces', Georgia, serif; }
+  .day-date-col .date-num{ font-size: 12px; color: var(--muted); font-weight:500; }
+  .today-badge{
+    display:inline-block; margin-top:3px; background: var(--gold); color:#2C1529;
+    font-size:9.5px; font-weight:700; padding: 1px 7px; border-radius:999px; text-transform:uppercase; width: fit-content;
+  }
+  .chip-row{ display:flex; flex-direction:column; gap:5px; flex:1; min-width:0; }
+  .ev-chip{ font-size: 13px; line-height:1.5; padding: 8px 12px; border-radius:7px; font-weight:500; }
+  .ev-chip strong{ font-weight: 700; display: block; margin-bottom: 2px; }
+  .ev-chip.sm{ background: var(--sm-soft); color: var(--sm); }
+  .ev-chip.mz{ background: var(--mz-soft); color: var(--mz); }
+  .ev-chip.ug{ background: var(--ug-soft); color: var(--ug); }
+  .ev-chip.cu{ background: var(--cu-soft); color: var(--cu); }
+
+  .venue-block{ border-radius: 12px; padding: 14px 14px 12px; margin-bottom: 12px; border: 1px solid var(--border); }
+  .venue-block .vname{ font-weight:700; font-size: 13px; margin-bottom:6px; display:flex; align-items:center; gap:7px; }
+  .venue-block.sm{ background: var(--sm-soft); } .venue-block.mz{ background: var(--mz-soft); }
+  .venue-block.ug{ background: var(--ug-soft); } .venue-block.cu{ background: var(--cu-soft); }
+  .venue-block .vtext{ font-size: 14.5px; white-space: pre-line; line-height:1.5; color: var(--ink); }
+  .venue-block textarea{
+    width:100%; min-height: 60px; border-radius:8px; border:1px solid var(--border);
+    padding: 8px 10px; font-size:14px; resize:vertical; background:#fff;
+  }
+  .venue-block .vempty{ font-size:13.5px; color: var(--muted); font-style:italic; }
+
+  /* ============ MODUL PROGRAM SĂPTĂMÂNAL ============ */
+  .mod-saptamanal .day-section{ margin-bottom: 26px; scroll-margin-top: calc(var(--header-h, 80px) + 20px); }
+  .mod-saptamanal .day-header{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px; }
+  .mod-saptamanal .day-header h2{ margin:0; font-size:20px; color:var(--navy); }
+  .mod-saptamanal .day-count{ font-size:12.5px; color:var(--muted); }
+  .mod-saptamanal .category-block{ margin-bottom:14px; }
+  .mod-saptamanal .category-label{
+    display:inline-block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+    padding:4px 10px; border-radius:999px; margin-bottom:8px;
+  }
+  .mod-saptamanal .cat-stagiune-occ{ background: var(--gold-soft); color:#7A5A16; }
+  .mod-saptamanal .cat-school-of-musical{ background:#C1E8CD; color:#064E3B; }
+  .mod-saptamanal .cat-alte-activitati{ background:#E2CDCD; color:#5C2C16; }
+  /* Categorie neidentificată (fallback getCatSlug) — stil neutru, distinct, ca să nu se confunde vizual cu "Stagiune OCC" */
+  .mod-saptamanal .cat-alt-categorie{ background: var(--bg-alt); color: var(--muted); }
+  .mod-saptamanal .card-alt-categorie::before{ background: var(--muted); }
+  .mod-saptamanal .cards-grid{ display:flex; flex-direction:column; gap:8px; }
+  .mod-saptamanal .card{
+    position:relative; display:grid; grid-template-columns: 90px 130px 2fr 1fr 1fr; gap:14px;
+    background: var(--card-bg); border:1px solid var(--border); border-radius:10px; padding:12px 14px 12px 18px;
+    overflow:hidden;
+  }
+  .mod-saptamanal .card::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:4px; }
+  .mod-saptamanal .card-stagiune-occ::before{ background: var(--gold); }
+  .mod-saptamanal .card-school-of-musical{ background:#ECFDF5; border-color:#A7F3D0; }
+  .mod-saptamanal .card-school-of-musical::before{ background:#059669; }
+  .mod-saptamanal .card-alte-activitati{ background:#FEF2F2; border-color:#FECACA; }
+  .mod-saptamanal .card-alte-activitati::before{ background:#DC2626; }
+  .mod-saptamanal.edit-on .card{ cursor:pointer; }
+  .mod-saptamanal.edit-on .card:hover{ transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--navy); }
+  .mod-saptamanal .badge-time{
+    display:inline-block; background:#E1ECF7; color:#1B4B8A; font-weight:700; font-size:.82rem;
+    padding:5px 10px; border-radius:8px; white-space:pre-wrap; line-height:1.3;
+  }
+  .mod-saptamanal .badge-room{
+    display:inline-flex; align-items:center; gap:4px; font-size:.78rem; font-weight:700;
+    color:var(--navy); background:#EEF1F7; padding:5px 10px; border-radius:8px; width:fit-content; white-space:pre-wrap;
+  }
+  .mod-saptamanal .empty-badge{ display:none !important; }
+  .mod-saptamanal.edit-on .empty-badge{ display:inline-flex !important; opacity:.6; background:#e0dcd5; color:#555; }
+  .mod-saptamanal .activity-title{ font-family:Georgia, serif; font-weight:bold; font-size:10pt; margin:0; white-space:pre-wrap; }
+  .mod-saptamanal .activity-distrib{ font-family:Georgia, serif; font-weight:normal; font-size:9.5pt; margin:4px 0 0; white-space:pre-wrap; line-height:1.4; color:var(--ink); }
+  .mod-saptamanal .col-header-label{ font-size:.65rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--gold); margin:0 0 2px; }
+  .mod-saptamanal .col-text{ font-family:Georgia, serif; font-weight:normal; font-size:9pt; line-height:1.35; white-space:pre-wrap; margin:0; }
+  .mod-saptamanal .status-msg{ text-align:center; color:var(--muted); padding:30px; font-size:14px; }
+
+  /* BUTON FLOTANT '+' SI MODALA EDITARE */
+  .fab-add-btn{
+    position: fixed; bottom: 28px; right: 28px; width: 56px; height: 56px; border-radius: 50%;
+    background: var(--gold); color: #2C1529; border: none; font-size: 28px; font-weight: 700;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.25); z-index: 1500; display: flex; align-items: center; justify-content: center;
+    transition: transform .15s ease, background .15s ease;
+  }
+  .fab-add-btn:hover{ transform: scale(1.08); background: #dca838; }
+
+  .modal-edit{ max-width:500px; text-align:left; }
+  .edit-field{ display:flex; flex-direction:column; gap:4px; margin-bottom:14px; text-align:left; }
+  .edit-field label{ font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .edit-field input, .edit-field textarea, .edit-field select{
+    width:100%; border-radius:8px; border:1px solid var(--border); padding:10px 12px; font-size:14px;
+    background:#FAFAF8; outline:none; transition:border-color .15s;
+  }
+  .edit-field input:focus, .edit-field textarea:focus, .edit-field select:focus{ border-color: var(--navy); background:#fff; }
+  .edit-field textarea{ resize:vertical; min-height:60px; }
+
+  /* ============ STILURI MODUL HR ============ */
+  #mod-hr .page-header { background: linear-gradient(135deg, var(--brand-1, #3B1E38), var(--brand-2, #2C1529)); color: #F6ECDD; border-radius: 16px; padding: 36px 40px; margin-bottom: 36px; box-shadow: 0 4px 18px rgba(36,31,51,0.08); position: relative; overflow: hidden; }
+  #mod-hr .page-header::after { content: ""; position: absolute; right: -60px; top: -60px; width: 220px; height: 220px; border-radius: 50%; background: radial-gradient(circle, rgba(201,152,46,0.35), transparent 70%); }
+  #mod-hr .eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; color: #EFDDA8; font-weight: 600; margin-bottom: 8px; }
+  #mod-hr .page-header h1 { font-size: 32px; color: #F6ECDD; font-family: 'Fraunces', Georgia, serif; margin: 0; }
+  #mod-hr .page-header p { margin: 10px 0 0; color: rgba(246,236,221,0.78); max-width: 560px; font-size: 15px; }
+  #mod-hr section.block { margin-bottom: 44px; }
+  #mod-hr .section-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; }
+  
+  #mod-hr .panel { background: #FFFFFF; border: 1px solid var(--border, #E5DFD1); border-radius: 12px; box-shadow: 0 4px 18px rgba(36,31,51,0.08); padding: 32px; margin-top: 20px; display: none; }
+  #mod-hr .panel.visible { display: block; animation: hrFadeIn .25s ease; }
+  @keyframes hrFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  #mod-hr .panel-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 16px; }
+  #mod-hr .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  #mod-hr .field { display: flex; flex-direction: column; gap: 6px; }
+  #mod-hr .field.full { grid-column: 1 / -1; }
+  @media (max-width: 640px) { #mod-hr .form-grid { grid-template-columns: 1fr; } }
+  #mod-hr label { font-size: 13px; font-weight: 600; color: var(--ink, #241F33); }
+  #mod-hr label .req { color: var(--sm, #8E3B46); }
+  #mod-hr .info-box { background: var(--bg-alt, #F1ECE1); padding: 12px 16px; border-radius: 10px; font-size: 13px; color: var(--muted, #79726B); border: 1px solid var(--border, #E5DFD1); }
+  #mod-hr .request-type-toggle { display: flex; gap: 10px; background: var(--bg-alt, #F1ECE1); padding: 6px; border-radius: 12px; margin-bottom: 22px; }
+  #mod-hr .request-type-toggle button { flex: 1; border: none; background: transparent; padding: 10px 14px; border-radius: 999px; font-family: inherit; font-weight: 600; font-size: 13.5px; color: var(--muted, #79726B); cursor: pointer; }
+  #mod-hr .request-type-toggle button.active { background: #FFFFFF; color: var(--brand-1, #3B1E38); box-shadow: 0 4px 18px rgba(36,31,51,0.08); }
+  #mod-hr .field-group { display: none; }
+  #mod-hr .field-group.active { display: contents; }
+  #mod-hr .principles-wrap { background: #FFFFFF; border-left: 3px solid var(--gold, #C9982E); padding: 12px 18px; border-radius: 0 8px 8px 0; margin-top: 10px; font-size: 12.5px; color: var(--ink, #241F33); }
+  #mod-hr .principles-wrap p { margin: 0 0 10px 0; font-weight: 600; }
+  #mod-hr .principles-wrap ol { margin: 0; padding-left: 18px; color: var(--muted, #79726B); display: flex; flex-direction: column; gap: 8px; }
+  #mod-hr .disclaimer-wrap { background: var(--bg-alt, #F1ECE1); padding: 16px 18px; border-radius: 10px; border: 1px dashed var(--muted, #79726B); margin-top: 10px; }
+  #mod-hr .disclaimer-wrap label { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; font-size: 13.5px; font-weight: 600; }
+  #mod-hr .form-footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--border, #E5DFD1); }
+  
+  #mod-hr .tracking-panel { background: #FFFFFF; border: 1px solid var(--border, #E5DFD1); border-radius: 12px; box-shadow: 0 4px 18px rgba(36,31,51,0.08); overflow-x: auto; width: 100%; }
+  #mod-hr table { width: 100%; border-collapse: collapse; min-width: 700px; text-align: left; }
+  #mod-hr thead th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #79726B); background: var(--bg-alt, #F1ECE1); padding: 14px 20px; font-weight: 600; }
+  #mod-hr tbody td { padding: 16px 20px; border-top: 1px solid var(--border, #E5DFD1); font-size: 14px; vertical-align: middle; }
+  
+  /* BADGE-URI STATUS HR */
+  #mod-hr .hr-badge { display:inline-block; padding:4px 10px; border-radius:12px; font-size:12px; font-weight:600; }
+  #mod-hr .hr-badge-neutral { background:#eef0f3; color:#555; }
+  #mod-hr .hr-badge-warn { background:#fff4d6; color:#8a6100; }
+  #mod-hr .hr-badge-ok { background:#dcf6e3; color:#146c2e; }
+  #mod-hr .hr-badge-err { background:#fde2e2; color:#a12626; }
+  /* NOUL STATUS ANULATA */
+  #mod-hr .hr-badge-canceled { background:#f4f4f5; color:#6b7280; font-style: italic; }
+  
+  #mod-hr .muted-sub { font-size:11px; color:var(--muted, #79726B); margin-top: 4px; }
+  #mod-hr .hr-status-select { padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border, #E5DFD1); background: var(--bg-alt, #F1ECE1); font-weight: 600; font-size: 13px; font-family: inherit; }
+
+  /* ============ MODUL ISTORIC MODIFICĂRI (SUPERADMIN) ============ */
+  #mod-istoric .page-header { background: linear-gradient(135deg, var(--brand-1, #3B1E38), var(--brand-2, #2C1529)); color: #F6ECDD; border-radius: 16px; padding: 36px 40px; margin-bottom: 36px; box-shadow: 0 4px 18px rgba(36,31,51,0.08); position: relative; overflow: hidden; }
+  #mod-istoric .page-header::after { content: ""; position: absolute; right: -60px; top: -60px; width: 220px; height: 220px; border-radius: 50%; background: radial-gradient(circle, rgba(201,152,46,0.35), transparent 70%); }
+  #mod-istoric .eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; color: #EFDDA8; font-weight: 600; margin-bottom: 8px; }
+  #mod-istoric .page-header h1 { font-size: 32px; color: #F6ECDD; font-family: 'Fraunces', Georgia, serif; margin: 0; }
+  #mod-istoric .page-header p { margin: 10px 0 0; color: rgba(246,236,221,0.78); max-width: 560px; font-size: 15px; }
+  #mod-istoric .tracking-panel { background: #FFFFFF; border: 1px solid var(--border, #E5DFD1); border-radius: 12px; box-shadow: 0 4px 18px rgba(36,31,51,0.08); overflow-x: auto; width: 100%; }
+  #mod-istoric table { width: 100%; border-collapse: collapse; min-width: 720px; text-align: left; }
+  #mod-istoric thead th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #79726B); background: var(--bg-alt, #F1ECE1); padding: 14px 20px; font-weight: 600; }
+  #mod-istoric tbody td { padding: 14px 20px; border-top: 1px solid var(--border, #E5DFD1); font-size: 13.5px; vertical-align: middle; }
+  #mod-istoric tbody td.ist-detalii { color: var(--muted, #79726B); max-width: 360px; }
+  #mod-istoric .ist-badge { display:inline-block; padding:4px 10px; border-radius:12px; font-size:12px; font-weight:600; background: var(--bg-alt, #F1ECE1); color: var(--brand-1, #3B1E38); white-space: nowrap; }
+  #mod-istoric .ist-refresh-btn { margin-left: auto; }
+  #mod-istoric .section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+
+  /* Stiluri Semnatura */
+  #signature-wrap { border: 1px solid var(--border); border-radius: 12px; background: #fff; position: relative; touch-action: none; overflow: hidden; margin-top: 4px; }
+  #signature-pad { display: block; width: 100%; height: 160px; cursor: crosshair; }
+  .sig-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12.5px; }
+  .sig-clear { background: none; border: none; color: var(--sm); cursor: pointer; font-weight: 600; padding: 0; text-decoration: underline; }
+
+  /* TELEFON OPTIMIZARI & RESPONSIVE HEADER */
+  @media (max-width: 768px) {
+    .app-header .header-actions { gap: 6px; }
+    .app-header .header-actions .pill-btn { padding: 7px 10px; font-size: 11.5px; gap: 5px; }
+    .app-header .header-actions .pill-btn .icon-svg svg { width: 14px; height: 14px; }
+    .mod-saptamanal .card { grid-template-columns: 1fr; gap:10px; }
+    .app-header .inner { padding: 8px 14px; }
+    .brand-block h1 { font-size: 18px; }
+    .brand-block .subtitle { font-size: 11px; margin-top: 0; }
+    .header-controls-block { padding: 6px 12px 8px; }
+    .mod-stagiune .filter-bar, .header-controls-block .filter-bar {
+      flex-wrap: nowrap !important; overflow-x: auto !important; padding-bottom: 5px; scrollbar-width: none;
+    }
+    .filter-chip { padding: 8px 12px 8px 8px; min-height: 36px; font-size: 12.5px; white-space: nowrap; }
+    .tab-btn { padding: 8px 14px; min-height: 34px; }
+    .day-row { gap: 10px !important; padding: 10px 12px !important; }
+    .day-date-col { width: 90px !important; }
+    .day-date-col .dow-full { font-size: 12.5px !important; }
+    .day-date-col .date-num { font-size: 11px !important; }
+  }
+
+  /* ============ WIDGET FEEDBACK INTERN (buton plutitor + modal) ============ */
+  .fb-fab{
+    position: fixed; left: 22px; bottom: 22px; z-index: 3600;
+    width: 56px; height: 56px; border-radius: 50%; border: none;
+    background: var(--brand-1); color: var(--brand-text);
+    font-size: 24px; line-height: 1; display:flex; align-items:center; justify-content:center;
+    box-shadow: var(--shadow-lg); cursor:pointer;
+    transition: transform .15s ease, background .15s ease;
+  }
+  .fb-fab:hover{ background: var(--brand-2); transform: translateY(-2px); }
+  .fb-fab:active{ transform: translateY(0) scale(0.96); }
+
+  .fb-overlay{
+    position: fixed; inset:0; background: rgba(36,31,51,0.5);
+    display:none; align-items:center; justify-content:center; z-index: 4000; padding: 16px;
+  }
+  .fb-overlay.show{ display:flex; }
+
+  .fb-modal{
+    position: relative; background: var(--card-bg); border-radius: 18px;
+    max-width: 440px; width:100%; max-height: 88vh; overflow-y:auto;
+    box-shadow: var(--shadow-lg); padding: 26px 24px 22px; animation: fbPop .16s ease;
+  }
+  @keyframes fbPop{ from{ transform: scale(0.96); opacity:0; } to{ transform:scale(1); opacity:1; } }
+
+  .fb-modal h3{ margin: 0 30px 6px 0; font-size: 20px; color: var(--brand-1); }
+  .fb-subtitle{ margin: 0 0 18px; color: var(--muted); font-size: 13.5px; line-height:1.5; }
+
+  .fb-modal-close{
+    position:absolute; top:14px; right:14px; background: var(--bg-alt); border:none;
+    width:30px; height:30px; border-radius:50%; font-size:15px; color:var(--muted);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .fb-modal-close:hover{ background: var(--border); }
+
+  .fb-field{ margin-bottom: 14px; display:flex; flex-direction:column; gap:6px; }
+  .fb-field label{ font-size: 12.5px; font-weight:600; color: var(--ink); }
+  .fb-field select, .fb-field textarea{
+    border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px;
+    font-size: 14px; color: var(--ink); background: var(--bg); width:100%;
+  }
+  .fb-field select:focus, .fb-field textarea:focus{ outline: 2px solid var(--gold-soft); border-color: var(--gold); }
+  .fb-field textarea{ resize: vertical; min-height: 90px; }
+
+  .fb-error{ color: var(--err); font-size: 12.5px; min-height: 16px; margin-bottom: 4px; }
+
+  .fb-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top: 6px; }
+  .fb-actions-center{ justify-content:center; }
+
+  .fb-btn{
+    padding: 10px 18px; border-radius:999px; border:1px solid var(--border);
+    background: var(--bg-alt); font-size:13.5px; font-weight:600; color: var(--ink); cursor:pointer;
+  }
+  .fb-btn:hover{ border-color: var(--gold); }
+  .fb-btn-submit{ background: var(--brand-1); color: var(--brand-text); border-color: var(--brand-1); }
+  .fb-btn-submit:hover{ opacity:.9; }
+  .fb-btn-submit:disabled{ opacity:.6; cursor:default; }
+
+  .fb-success-icon{ font-size: 38px; text-align:center; margin-bottom: 8px; }
+  .fb-success-text{ text-align:center; color: var(--ink); font-size: 15px; line-height:1.5; margin: 0 0 18px; }
+</style>
+</head>
+<body>
+
+<!-- ============ ECRAN LOGIN ============ -->
+<div class="auth-screen" id="auth-screen">
+  <div class="auth-card">
+    <button type="button" class="lang-toggle-btn lang-toggle-auth" title="Switch language / Schimbă limba">
+      <span class="icon-svg"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></span>
+      <span class="lang-toggle-text">RO</span>
+    </button>
+    <h1>Opera Comică</h1>
+    <p class="auth-sub" data-i18n="auth_subtitle">Acces echipă — autentificare necesară</p>
+
+    <div id="auth-step-credentials">
+      <div class="auth-hint-box">
+        <p data-i18n="auth_hint_line1">Introdu adresa de email și parola de acces (personală sau generală de proiect).</p>
+        <p style="font-size: 0.9em; opacity: 0.8; margin-top: 8px;"><em data-i18n="auth_hint_line2">*Notă: Dacă folosești parola generală, pentru siguranța datelor, vei primi un cod unic de validare (OTP) pe email în pasul următor.</em></p>
+      </div>
+      <label for="auth-email" data-i18n="auth_label_email">Email</label>
+      <input type="email" id="auth-email" name="email" autocomplete="email" placeholder="nume@exemplu.ro" data-i18n-placeholder="auth_placeholder_email">
+      <label for="parola-acces" data-i18n="auth_label_password">Parolă de acces</label>
+      <div class="auth-pwd-wrap">
+        <input type="password" id="parola-acces" name="parola" autocomplete="current-password" placeholder="Introdu parola" data-i18n-placeholder="auth_placeholder_password">
+        <button type="button" class="pwd-toggle-btn" id="pwd-toggle-acces" aria-label="Arată/ascunde parola" title="Arată/ascunde parola">
+          <span class="icon-svg pwd-eye-on"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></span>
+          <span class="icon-svg pwd-eye-off" hidden><svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg></span>
+        </button>
+      </div>
+      <label class="remember-me-wrap"><input type="checkbox" id="auth-remember" checked> <span data-i18n="auth_remember">Ține-mă minte pe acest dispozitiv</span></label>
+      <div class="auth-error" id="auth-error"></div>
+      <button class="btn primary" id="auth-submit" data-i18n="auth_submit">Continuă</button>
+    </div>
+
+    <div id="auth-step-otp" hidden>
+      <p style="font-size:13.5px;color:var(--muted);text-align:left;margin:4px 0 0;" id="auth-otp-msg"></p>
+      <label for="auth-otp" data-i18n="auth_otp_label">Cod de verificare</label>
+      <input type="text" id="auth-otp" inputmode="numeric" maxlength="6" placeholder="••••••">
+      <div class="auth-error" id="auth-otp-error"></div>
+      <button class="btn primary" id="auth-otp-submit" data-i18n="auth_otp_submit">Verifică codul</button>
+      <button class="btn" id="auth-otp-back" data-i18n="auth_otp_back">Înapoi</button>
+    </div>
+
+    <div class="auth-loading" id="auth-loading" hidden data-i18n="auth_loading">Se verifică…</div>
+  </div>
+</div>
+
+<!-- ============ APLICAȚIE ============ -->
+<div id="app-shell" hidden>
+  <header class="app-header">
+    <div class="inner">
+      <div class="brand-block" id="brand-logo" title="Mergi la panoul principal">
+        <h1>Opera Comică</h1>
+        <p class="subtitle" id="user-chip">—</p>
+      </div>
+      <div class="header-actions">
+        <button class="pill-btn" id="btn-back-home" hidden>
+          <span class="icon icon-svg">
+            <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+          </span>
+          <span class="text" data-i18n="nav_home">Acasă</span>
+        </button>
+        <button class="pill-btn" id="edit-toggle" hidden>
+          <span class="icon icon-svg">
+            <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+          </span>
+          <span class="text" data-i18n="edit_toggle_label">Editează</span>
+        </button>
+        <button type="button" class="pill-btn lang-toggle-btn" id="lang-toggle-btn" title="Switch language / Schimbă limba">
+          <span class="icon-svg"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></span>
+          <span class="lang-toggle-text">RO</span>
+        </button>
+        <button class="pill-btn" id="hamburger-btn">
+          <span class="icon-svg"><svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></span>
+          <span class="text" data-i18n="menu_label">Meniu</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- CONTROALE INTEGRATE PENTRU PROGRAM SAPTAMANAL -->
+    <div id="header-saptamanal-controls" class="header-controls-block" hidden>
+      <div class="header-controls-inner">
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="sapt-search-toggle" class="search-toggle-btn" style="height:44px; width:48px; border-radius:12px;" title="Căutare" data-i18n-title="btn_search_title">
+            <span class="icon-svg"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></span>
+          </button>
+          <select id="sapt-days-dropdown" class="days-dropdown"><option value="__all__" data-i18n="days_dropdown_all">Toate zilele săptămânii</option></select>
+        </div>
+        <div class="collapsible-search-wrap" id="sapt-search-wrap"><input type="text" id="sapt-search-input" class="search-input" placeholder="Caută nume, sală, activitate..." data-i18n-placeholder="sapt_search_placeholder" autocomplete="off"></div>
+      </div>
+    </div>
+
+    <!-- CONTROALE INTEGRATE PENTRU STAGIUNE -->
+    <div id="header-stagiune-controls" class="header-controls-block" hidden>
+      <div class="header-controls-inner">
+        <div class="filter-bar" id="stg-filter-bar">
+          <button id="stg-search-toggle" class="filter-chip search-toggle-btn" title="Căutare" data-i18n-title="btn_search_title">
+            <span class="icon-svg" style="margin-right:4px;"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></span> <span data-i18n="btn_search">Caută</span>
+          </button>
+          <button class="filter-chip all active" data-venue="ALL"><span data-i18n="venue_all">Toate sălile</span></button>
+          <button class="filter-chip sm" data-venue="SM"><span class="dot sm"></span><span data-i18n="venue_SM">Sala Mare</span></button>
+          <button class="filter-chip mz" data-venue="MZ"><span class="dot mz"></span><span data-i18n="venue_MZ">Mozart</span></button>
+          <button class="filter-chip ug" data-venue="UG"><span class="dot ug"></span><span data-i18n="venue_UG">UG</span></button>
+          <button class="filter-chip cu" data-venue="CU"><span class="dot cu"></span><span data-i18n="venue_CU">Curte</span></button>
+        </div>
+        <div class="collapsible-search-wrap" id="stg-search-wrap"><input type="search" class="search-input" id="stg-search-input" placeholder="Caută un spectacol, o dată sau o sală…" data-i18n-placeholder="stg_search_placeholder" autocomplete="off"></div>
+        <div class="tabs-wrap"><div class="tabs" id="stg-tabs"></div></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MENIU LATERAL -->
+  <div class="overlay" id="menu-overlay">
+    <div class="side-menu" id="side-menu">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+        <span id="user-email-chip" style="color:var(--ink); font-weight:600; font-size:13px; word-break:break-all;"></span>
+        <button class="modal-close" id="menu-close" style="position:static; margin:0;">✕</button>
+      </div>
+      <nav id="mobile-nav" style="display:flex; flex-direction:column; gap:8px; margin-bottom:20px; flex:1;"></nav>
+      <hr style="border:0; border-top:1px solid var(--border); margin: 0 0 20px 0;">
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <button class="pill-btn" id="btn-schimba-parola" style="background:var(--bg-alt); color:var(--ink); border-color:var(--border); justify-content:center;">
+          <span class="icon-svg"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg></span> <span data-i18n="menu_schimba_parola">Schimbă parola</span>
+        </button>
+        <button class="pill-btn" id="logout-btn" style="background:var(--sm-soft); color:var(--sm); border-color:var(--sm-soft); justify-content:center;">
+          <span class="icon-svg"><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></span> <span data-i18n="menu_logout">Ieși din cont</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODUL ACASĂ (DASHBOARD) ===== -->
+  <section id="mod-home" class="mod-home" hidden>
+    <div class="home-hero">
+      <h2 id="home-welcome-title">Salut!</h2>
+      <p>Ce dorești să accesezi astăzi?</p>
+    </div>
+    <div class="home-grid" id="home-cards-wrap">
+      <!-- Cardurile se randează dinamic -->
+    </div>
+  </section>
+
+  <!-- ===== MODUL STAGIUNE ===== -->
+  <section id="mod-stagiune" class="mod-stagiune" hidden>
+    <main>
+      <div class="month-header"><h2 id="stg-month-title"></h2><span class="month-count" id="stg-month-count"></span></div>
+      <div class="day-list" id="stg-calendar-grid"></div>
+    </main>
+    <footer id="stg-footer-status">Se încarcă…</footer>
+    <div class="overlay" id="stg-day-overlay">
+      <div class="modal" id="stg-day-modal">
+        <button class="modal-close" id="stg-day-close">✕</button>
+        <h3 id="stg-day-title"></h3>
+        <div class="modal-sub" id="stg-day-sub" style="color:var(--muted);font-size:13px;margin-bottom:18px;"></div>
+        <div id="stg-venue-blocks"></div>
+        <div class="save-msg" id="stg-save-msg"></div>
+        <div class="modal-actions" id="stg-day-actions"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== MODUL PROGRAM SĂPTĂMÂNAL ===== -->
+  <section id="mod-saptamanal" class="mod-saptamanal" hidden>
+    <main id="sapt-content"><div class="status-msg" id="sapt-status-msg">Se încarcă programul...</div></main>
+    <button id="sapt-add-fab" class="fab-add-btn" title="Adaugă activitate nouă" hidden>+</button>
+    <div class="overlay" id="sapt-edit-overlay">
+      <div class="modal modal-edit">
+        <button class="modal-close" id="sapt-edit-close">✕</button>
+        <h3>Editează Activitatea</h3>
+        <div class="edit-field"><label>Ora</label><textarea id="sapt-edit-ora" placeholder="ex: 10:00"></textarea></div>
+        <div class="edit-field"><label>Sală</label><textarea id="sapt-edit-sala" placeholder="ex: Sala Mare"></textarea></div>
+        <div class="edit-field"><label>Activitate & Distribuție</label><textarea id="sapt-edit-activitate" style="min-height:80px;"></textarea></div>
+        <div class="edit-field"><label>Coordonatori</label><textarea id="sapt-edit-coord"></textarea></div>
+        <div class="edit-field"><label>Necesar Tehnic</label><textarea id="sapt-edit-tech"></textarea></div>
+        <div class="modal-actions"><button class="btn danger" id="sapt-edit-delete" style="margin-right:auto;">🗑️ Șterge</button><button class="btn" id="sapt-edit-cancel">Anulează</button><button class="btn primary" id="sapt-edit-save">Salvează</button></div>
+      </div>
+    </div>
+    <div class="overlay" id="sapt-add-overlay">
+      <div class="modal modal-edit">
+        <button class="modal-close" id="sapt-add-close">✕</button>
+        <h3>Adaugă Activitate Nouă</h3>
+        <div class="edit-field">
+          <label>Ziua</label>
+          <select id="sapt-add-zi-select"></select>
+          <input type="text" id="sapt-add-zi-custom" placeholder="Scrie denumirea noii zile (ex: 15.01)" style="margin-top:6px; display:none;">
+        </div>
+        <div class="edit-field">
+          <label>Categorie</label>
+          <select id="sapt-add-cat">
+            <option value="STAGIUNE OCC (REPETIȚII/SPECTACOLE/EVENIMENTE)">STAGIUNE OCC (REPETIȚII/SPECTACOLE/EVENIMENTE)</option><option value="School of Musical">School of Musical</option><option value="Alte activități">Alte activități</option>
+          </select>
+        </div>
+        <div class="edit-field"><label>Ora *</label><textarea id="sapt-add-ora" placeholder="ex: 10:00 sau 10:00 - 12:00"></textarea></div>
+        <div class="edit-field"><label>Sală</label><textarea id="sapt-add-sala" placeholder="ex: Sala Mare"></textarea></div>
+        <div class="edit-field"><label>Activitate & Distribuție</label><textarea id="sapt-add-activitate" style="min-height:80px;" placeholder="Titlu activitate&#10;Distribuție / detalii..."></textarea></div>
+        <div class="edit-field"><label>Coordonatori</label><textarea id="sapt-add-coord"></textarea></div>
+        <div class="edit-field"><label>Necesar Tehnic</label><textarea id="sapt-add-tech"></textarea></div>
+        <div class="modal-actions"><button class="btn" id="sapt-add-cancel">Anulează</button><button class="btn primary" id="sapt-add-save">Adaugă în program</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== MODUL HR ===== -->
+  <section id="mod-hr" hidden>
+    <main>
+      <header class="page-header">
+        <div class="eyebrow" id="header-eyebrow">Modul intern &middot; Resurse Umane</div>
+        <h1 id="header-title">Cereri HR &amp; Documente</h1>
+        <p id="header-desc">Depune o cerere de colaborare externă sau de concediu fără plată, direct în aplicație.</p>
+      </header>
+
+      <section class="block depunere-section">
+        <div class="section-title"><h2>Completează și depune cerere</h2></div>
+        
+        <div class="panel visible" id="hr-panel-online" style="margin-top:0;">
+          <div class="panel-header">
+            <div><p>Câmpurile marcate cu <span style="color:var(--sm)">*</span> sunt obligatorii.</p></div>
+          </div>
+          <div class="request-type-toggle">
+            <button type="button" class="active" id="hr-type-btn-colaborare" onclick="HrModule.setRequestType('colaborare')">Cerere de colaborare externă</button>
+            <button type="button" id="hr-type-btn-cfs" onclick="HrModule.setRequestType('cfs')">Cerere de concediu fără plată (CFS)</button>
+          </div>
+          
+          <form id="hr-online-form" onsubmit="HrModule.submitOnlineForm(event)">
+            <div class="form-grid">
+              <div class="field"><label>Nume și prenume <span class="req">*</span></label><input type="text" id="hr-online-nume" required></div>
+              <div class="field"><label>Funcție <span class="req">*</span></label><input type="text" id="hr-online-functie" required></div>
+              <div class="field full info-box"><span>📲 La final, cererea este semnată, se trimite automat către HR și se descarcă o copie PDF.</span></div>
+              <div class="field"><label>Data început <span class="req">*</span></label><input type="date" id="hr-online-start" required onchange="HrModule.handleStartDateChange('hr-online-start', 'hr-online-end')"></div>
+              <div class="field"><label>Data sfârșit <span class="req">*</span></label><input type="date" id="hr-online-end" required></div>
+              
+              <div class="field-group active" data-type="colaborare">
+                <div class="field full"><label>Colaborarea externă este cu (instituția) <span class="req">*</span></label><input type="text" id="hr-online-institutie" required></div>
+                <div class="field full"><label>Descrierea colaborării <span class="req">*</span></label><textarea id="hr-online-descriere-colaborare" required></textarea></div>
+              </div>
+              <div class="field-group" data-type="cfs">
+                <div class="field full"><label>Motivul cererii <span class="req">*</span></label><textarea id="hr-online-descriere-cfs"></textarea></div>
+              </div>
+              
+              <div class="field full"><label>Observații (opțional)</label><textarea id="hr-online-observatii"></textarea></div>
+              
+              <!-- === MODUL SEMNATURA === -->
+              <div class="field full">
+                <label>Semnătură olografă <span class="req">*</span></label>
+                <div id="signature-wrap">
+                  <canvas id="signature-pad"></canvas>
+                </div>
+                <div class="sig-actions">
+                  <span style="color:var(--muted)">Folosește degetul sau mouse-ul</span>
+                  <button type="button" class="sig-clear" onclick="HrModule.clearSignature()">Șterge și refă</button>
+                </div>
+              </div>
+
+              <div class="field-group active" data-type="colaborare">
+                <div class="field full principles-wrap">
+                  <p>Precizez că am luat cunoştinţă despre principiile de colaborare externă stabilite de către conducerea OCC conform fișei postului, regulilor și regulamentelor, respectiv:</p>
+                  <ol>
+                    <li>Recunosc că activitatea OCC are prioritate absolută față de orice alt angajament extern, conform contractului individual de muncă și ROI.</li>
+                    <li>Artistul are obligația sa consulte zilnic programul afișat de Compartimentul Studii Muzicale la avizierul instituției (sau transmis pe emailul personal) și să rămână la dispoziția OCC pentru orice modificare a programului afișat chiar și in cazul în care este dublat sau dublează ori când face parte dintr-o distribuție paralelă;</li>
+                    <li>Artistul are obligaţia de anunţa în scris în cel mai scurt timp proiectele în care intenționează să fie implicat în afara Operei Comice. Respectă decizia conducerii cu privire la acordarea/neacordarea permisiunii pentru colaborări ce nu țin de Opera Comică pentru Copii din București</li>
+                    <li>Colaborarea să nu interfereze și să respecte programul de spectacole şi repetiţii al OCC, acesta fiind prioritar în raport de alte obligații profesionale ale angajatului;</li>
+                    <li>Orice formă de colaborare cu instituţii de spectacole / concerte sau operatori culturali privați se realizează doar cu aprobarea conducerii OCC;</li>
+                    <li>Am luat cunoștință că, în caz de forță majoră, îmbolnăvire a colegilor din distribuție sau necesități de producție neprevăzute, prezenta aprobare se revocă de drept, având obligația să mă prezint la sediul OCC cu prioritate.</li>
+                  </ol>
+                </div>
+              </div>
+              <div class="field full disclaimer-wrap">
+                <label><input type="checkbox" required><span>Prin bifarea acestei căsuțe, confirm că accept condițiile de mai sus.</span></label>
+              </div>
+            </div>
+            
+            <div class="form-footer">
+              <button type="button" class="btn" onclick="document.getElementById('hr-online-form').reset(); HrModule.clearSignature();">Resetează</button>
+              <button type="submit" class="btn primary" id="hr-btn-submit-online">Semnează &amp; Trimite</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- TABEL TRACKING -->
+      <section class="block" id="hr-tracking-section" hidden>
+        <div class="section-title"><h2 id="hr-table-title">Registru Cereri HR</h2></div>
+        <div class="tracking-panel">
+          <table>
+            <thead>
+              <tr><th>Depusă la</th><th>Angajat</th><th>Tip cerere</th><th>Perioadă</th><th>Status</th><th>Document</th><th>Ultima actualizare</th></tr>
+            </thead>
+            <tbody id="hr-tracking-body">
+              <tr><td colspan="7" class="status-msg">Se încarcă cererile...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <!-- ===== MODUL ISTORIC MODIFICĂRI (SUPERADMIN) ===== -->
+  <section id="mod-istoric" hidden>
+    <main>
+      <header class="page-header">
+        <div class="eyebrow">Modul intern &middot; Audit</div>
+        <h1>Istoric Modificări</h1>
+        <p>Trasabilitate completă a modificărilor din Program, Stagiune și HR — cine, ce și când a modificat. Vizibil exclusiv pentru SUPERADMIN.</p>
+      </header>
+
+      <section class="block">
+        <div class="section-title">
+          <h2>Ultimele 100 de modificări</h2>
+          <button class="btn ist-refresh-btn" id="ist-refresh-btn">↻ Reîmprospătează</button>
+        </div>
+        <div class="tracking-panel">
+          <table>
+            <thead>
+              <tr><th>Data &amp; ora</th><th>Utilizator</th><th>Secțiune</th><th>Acțiune</th><th>Detalii</th></tr>
+            </thead>
+            <tbody id="ist-tracking-body">
+              <tr><td colspan="5" class="status-msg">Se încarcă istoricul...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </section>
+
+</div>
+
+<!-- ALERT MODAL PENTRU MESAJE PERMANENTE (EX: IN AFARA PROGRAMULUI) -->
+<div class="overlay" id="alert-overlay" style="z-index: 3500;">
+  <div class="modal" style="max-width: 400px; text-align: center; padding: 32px 24px;">
+    <div style="font-size: 40px; margin-bottom: 12px;">⏰</div>
+    <h3 id="alert-title" style="margin-top:0; font-family:'Fraunces', Georgia, serif; font-size:22px; color:var(--brand-1);">Atenție</h3>
+    <p id="alert-message" style="color:var(--muted); font-size: 14.5px; line-height: 1.5; margin-bottom: 24px;"></p>
+    <button class="btn primary" id="alert-ok-btn" style="width: 100%; padding: 12px; font-size: 15px;">Am înțeles!</button>
+  </div>
+</div>
+
+<div class="overlay" id="pwd-overlay">
+  <div class="modal modal-edit" style="max-width: 400px;">
+    <button class="modal-close" id="pwd-close">✕</button>
+    <h3>Schimbă parola</h3>
+    <div class="edit-field"><label>Parola actuală</label><input type="password" id="pwd-old" placeholder="Introdu parola pe care o folosești acum"></div>
+    <div class="edit-field"><label>Parola nouă</label><input type="password" id="pwd-new" placeholder="Minim 6 caractere"></div>
+    <div class="edit-field"><label>Confirmă parola nouă</label><input type="password" id="pwd-confirm" placeholder="Reintrodu parola nouă"></div>
+    <div class="save-msg" id="pwd-msg" style="text-align: left; margin-bottom: 14px;"></div>
+    <div class="modal-actions">
+      <button class="btn" id="pwd-cancel">Anulează</button>
+      <button class="btn primary" id="pwd-save">Schimbă parola</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ============ WIDGET FEEDBACK INTERN ============ -->
+<button type="button" class="fb-fab" id="fb-fab" aria-label="Trimite feedback" title="Trimite feedback">💬</button>
+
+<div class="fb-overlay" id="fb-overlay">
+  <div class="fb-modal">
+    <button type="button" class="fb-modal-close" id="fb-modal-close" aria-label="Închide">✕</button>
+
+    <div id="fb-form-view">
+      <h3>Trimite feedback</h3>
+      <p class="fb-subtitle">Ajută-ne să îmbunătățim aplicația — semnalează o eroare, o afișare incorectă sau o sugestie.</p>
+
+      <div class="fb-field">
+        <label for="fb-tip">Tip feedback</label>
+        <select id="fb-tip">
+          <option value="">Alege tipul...</option>
+          <option value="Eroare">Eroare</option>
+          <option value="Afișare incorectă">Afișare incorectă</option>
+          <option value="Sugestie">Sugestie</option>
+        </select>
+      </div>
+
+      <div class="fb-field">
+        <label for="fb-zona">Zona afectată</label>
+        <select id="fb-zona">
+          <option value="">Alege zona...</option>
+          <option value="Autentificare / Login">Autentificare / Login</option>
+          <option value="Stagiune">Stagiune</option>
+          <option value="Program Săptămânal">Program Săptămânal</option>
+          <option value="HR &amp; Cereri">HR &amp; Cereri</option>
+          <option value="Altele / General">Altele / General</option>
+        </select>
+      </div>
+
+      <div class="fb-field">
+        <label for="fb-mesaj">Mesaj</label>
+        <textarea id="fb-mesaj" rows="4" placeholder="Descrie pe scurt ce ai observat..."></textarea>
+      </div>
+
+      <div class="fb-error" id="fb-error"></div>
+
+      <div class="fb-actions">
+        <button type="button" class="fb-btn fb-btn-cancel" id="fb-btn-anuleaza">Anulează</button>
+        <button type="button" class="fb-btn fb-btn-submit" id="fb-btn-trimite">Trimite</button>
+      </div>
+    </div>
+
+    <div id="fb-success-view" hidden>
+      <div class="fb-success-icon">✅</div>
+      <p class="fb-success-text" id="fb-success-text">Mulțumim! Feedback-ul a fost înregistrat cu succes.</p>
+      <div class="fb-actions fb-actions-center">
+        <button type="button" class="fb-btn fb-btn-submit" id="fb-btn-inchide">Închide</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(function(){
+  "use strict";
+
+  // ============ NIVEL 3 (headless) — backend Apps Script expus ca API JSON ============
+  // doGet a fost eliminat: Code.gs nu mai servește nicio pagină, doar doPost (API).
+  // Vezi claude/blueprint-migrare-headless-doPost.md din proiect pentru tot contractul.
+  const API_URL = 'https://script.google.com/macros/s/AKfycbxdZjuXSRXj_-zxCkYfeu_39Z6VynKZk--Nkz3t4-bsaT4-LtUiB-Ksk5K6ph7ryuSe/exec';
+
+  // Iconița oficială (Google Drive, 192x192) — folosită pentru manifest.json (vezi
+  // refreshManifestLink_ mai jos). Favicon-ul și apple-touch-icon sunt setate direct
+  // în <head>, static.
+  var ICON_URL = "https://lh3.googleusercontent.com/d/1g8dFq3FmnDYvMCKls-ut__A9qVG6tjF6";
+
+  // Varianta client (fără server Apps Script) a fostului START_URL calculat în
+  // scriptletul <? ?> din <head> (eliminat) — pur și simplu URL-ul curent al paginii
+  // găzduite pe Netlify, fără querystring. Folosit ca bază pentru linkul salvat pe
+  // Home Screen iOS (vezi persistaTokenInUrlPeIOS_ și refreshManifestLink_ mai jos).
+  var START_URL = window.location.origin + window.location.pathname;
+
+  var SESSION_KEY = "occ_session_v6";
+
+  // ============ TRADUCERE RO / EN ============
+  // Dicționar minimalist: doar ecranul de logare, meniul principal de navigare și
+  // capetele de tabel pentru Stagiune și Program Săptămânal. Restul aplicației
+  // (module HR, butoane Editare/Adăugare, conținut din foile de calcul) rămâne
+  // netradus — utilizatorii EN au oricum acces doar de vizualizare, stabilit de
+  // backend, nu de limba aleasă aici.
+  var LANG_KEY = "occ_lang_v1";
+  var I18N = {
+    ro: {
+      auth_subtitle: "Acces echipă — autentificare necesară",
+      auth_hint_line1: "Introdu adresa de email și parola de acces (personală sau generală de proiect).",
+      auth_hint_line2: "*Notă: Dacă folosești parola generală, pentru siguranța datelor, vei primi un cod unic de validare (OTP) pe email în pasul următor.",
+      auth_label_email: "Email",
+      auth_placeholder_email: "nume@exemplu.ro",
+      auth_label_password: "Parolă de acces",
+      auth_placeholder_password: "Introdu parola",
+      auth_remember: "Ține-mă minte pe acest dispozitiv",
+      auth_submit: "Continuă",
+      auth_otp_label: "Cod de verificare",
+      auth_otp_submit: "Verifică codul",
+      auth_otp_back: "Înapoi",
+      auth_loading: "Se verifică…",
+      err_missing_credentials: "Completează email și parola.",
+      err_generic_login: "Eroare la autentificare.",
+      err_missing_otp: "Introdu codul primit pe email.",
+      err_wrong_otp: "Cod incorect.",
+      otp_sent_fallback: "Am trimis un cod pe adresa ",
+      nav_home: "Acasă",
+      nav_stagiune: "Stagiune",
+      nav_saptamanal: "Program Săptămânal",
+      nav_hr: "HR & Cereri",
+      nav_istoric: "Istoric Modificări",
+      menu_label: "Meniu",
+      menu_schimba_parola: "Schimbă parola",
+      menu_logout: "Ieși din cont",
+      col_coordonatori: "Coordonatori",
+      col_necesar_tehnic: "Necesar Tehnic",
+      days_dropdown_all: "Toate zilele săptămânii",
+      venue_all: "Toate sălile",
+      venue_SM: "Sala Mare",
+      venue_MZ: "Mozart",
+      venue_UG: "UG",
+      venue_CU: "Curte",
+      home_greeting_prefix: "Salut, ",
+      home_card_stagiune_title: "Stagiunea OCC",
+      home_card_stagiune_desc: "Vizualizează repetițiile și spectacolele de anul acesta.",
+      home_card_saptamanal_title: "Program Săptămânal",
+      home_card_saptamanal_desc: "Consultă desfășurătorul complet al activităților curente.",
+      btn_search: "Caută",
+      btn_search_title: "Căutare",
+      sapt_search_placeholder: "Caută nume, sală, activitate...",
+      stg_search_placeholder: "Caută un spectacol, o dată sau o sală…",
+      edit_toggle_label: "Editează"
+    },
+    en: {
+      auth_subtitle: "Team access — authentication required",
+      auth_hint_line1: "Enter your email address and access password (personal or general project password).",
+      auth_hint_line2: "*Note: If you use the general password, for data security you will receive a unique one-time verification code (OTP) by email in the next step.",
+      auth_label_email: "Email",
+      auth_placeholder_email: "name@example.com",
+      auth_label_password: "Access password",
+      auth_placeholder_password: "Enter your password",
+      auth_remember: "Remember me on this device",
+      auth_submit: "Continue",
+      auth_otp_label: "Verification code",
+      auth_otp_submit: "Verify code",
+      auth_otp_back: "Back",
+      auth_loading: "Verifying…",
+      err_missing_credentials: "Please enter your email and password.",
+      err_generic_login: "Login error.",
+      err_missing_otp: "Enter the code you received by email.",
+      err_wrong_otp: "Incorrect code.",
+      otp_sent_fallback: "We sent a code to ",
+      nav_home: "Home",
+      nav_stagiune: "Season",
+      nav_saptamanal: "Weekly Schedule",
+      nav_hr: "HR & Requests",
+      nav_istoric: "Change History",
+      menu_label: "Menu",
+      menu_schimba_parola: "Change password",
+      menu_logout: "Log out",
+      col_coordonatori: "Coordinators",
+      col_necesar_tehnic: "Technical Requirements",
+      days_dropdown_all: "All days of the week",
+      venue_all: "All halls",
+      venue_SM: "Main Hall",
+      venue_MZ: "Mozart",
+      venue_UG: "UG",
+      venue_CU: "Courtyard",
+      home_greeting_prefix: "Hi, ",
+      home_card_stagiune_title: "OCC Season",
+      home_card_stagiune_desc: "View this year's rehearsals and performances.",
+      home_card_saptamanal_title: "Weekly Schedule",
+      home_card_saptamanal_desc: "Browse the full schedule of current activities.",
+      btn_search: "Search",
+      btn_search_title: "Search",
+      sapt_search_placeholder: "Search by name, hall, activity...",
+      stg_search_placeholder: "Search for a performance, date, or hall...",
+      edit_toggle_label: "Edit"
+    }
+  };
+
+  // Zile ale săptămânii și luni RO → EN, pentru traducerea dinamică a etichetelor de
+  // dată generate de module (taburile lunilor din Stagiune, opțiunile din dropdown-ul
+  // de zile din Program Săptămânal). Cheile sunt normalizate (fără diacritice, minuscule).
+  var RO_EN_DAYS = {
+    duminica: "Sunday", luni: "Monday", marti: "Tuesday", miercuri: "Wednesday",
+    joi: "Thursday", vineri: "Friday", sambata: "Saturday"
+  };
+  var RO_EN_MONTHS = {
+    ianuarie: "January", februarie: "February", martie: "March", aprilie: "April",
+    mai: "May", iunie: "June", iulie: "July", august: "August",
+    septembrie: "September", octombrie: "October", noiembrie: "November", decembrie: "December"
+  };
+  /* Recunoaște și traduce dinamic numele zilelor și lunilor în limba română din
+     interiorul unei etichete deja formatate (ex: "luni, 14 septembrie" → "Monday, 14
+     September", "Septembrie 2026" → "September 2026"), indiferent unde apar în text.
+     Nu modifică nimic altceva din etichetă (cifre, punctuație, alte cuvinte). Activă
+     doar când limba curentă este EN — pe RO returnează textul neschimbat. */
+  function translateDateLabel(text){
+    if (currentLang !== "en" || !text) return text;
+    return String(text).replace(/[A-Za-zĂÂÎȘȚăâîșțŞŢşţ]+/g, function(word){
+      var key = word.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      if (RO_EN_DAYS[key]) return RO_EN_DAYS[key];
+      if (RO_EN_MONTHS[key]) return RO_EN_MONTHS[key];
+      return word;
+    });
+  }
+
+  var currentLang = "ro";
+  try { var savedLang = window.localStorage.getItem(LANG_KEY); if (savedLang === "ro" || savedLang === "en") currentLang = savedLang; } catch(eLang){}
+
+  function t(key){
+    var dict = I18N[currentLang] || I18N.ro;
+    return (dict && dict[key] !== undefined) ? dict[key] : (I18N.ro[key] !== undefined ? I18N.ro[key] : key);
+  }
+
+  // Aplică traducerile pe elementele statice marcate cu data-i18n / data-i18n-placeholder.
+  function applyStaticTranslations(){
+    document.querySelectorAll("[data-i18n]").forEach(function(el){ el.textContent = t(el.getAttribute("data-i18n")); });
+    document.querySelectorAll("[data-i18n-placeholder]").forEach(function(el){ el.setAttribute("placeholder", t(el.getAttribute("data-i18n-placeholder"))); });
+    document.querySelectorAll("[data-i18n-title]").forEach(function(el){ el.setAttribute("title", t(el.getAttribute("data-i18n-title"))); });
+    document.documentElement.lang = currentLang;
+    var langLabel = currentLang === "ro" ? "RO" : "EN";
+    var langTitle = currentLang === "ro" ? "Switch to English" : "Comută pe română";
+    document.querySelectorAll(".lang-toggle-text").forEach(function(el){ el.textContent = langLabel; });
+    document.querySelectorAll(".lang-toggle-btn").forEach(function(btn){ btn.title = langTitle; });
+  }
+
+  function setLang(lang){
+    if (lang !== "ro" && lang !== "en") return;
+    currentLang = lang;
+    try { window.localStorage.setItem(LANG_KEY, lang); } catch(eLang){}
+    applyStaticTranslations();
+    // Re-randăm secțiunile deja încărcate, ca etichetele dinamice (meniu, capete de
+    // tabel Program/Stagiune) să reflecte imediat noua limbă.
+    if (typeof renderMainTabs === "function" && document.getElementById("mobile-nav")) renderMainTabs();
+    if (typeof Session !== "undefined" && Session.current && typeof renderHomeCards === "function" && document.getElementById("home-cards-wrap")) renderHomeCards();
+    if (typeof loadedModules !== "undefined") {
+      if (loadedModules.saptamanal && typeof SaptamanalModule !== "undefined") SaptamanalModule.refresh();
+      if (loadedModules.stagiune && typeof StagiuneModule !== "undefined") StagiuneModule.refresh();
+    }
+  }
+
+  var Utils = {
+    stripDiacritics: function(str){ return String(str||"").normalize("NFD").replace(/[\u0300-\u036f]/g,""); },
+    normalize: function(str){ return Utils.stripDiacritics(str).toLowerCase().trim(); },
+    normalizeKey: function(str){ return Utils.stripDiacritics(str).toLowerCase().replace(/[^a-z0-9]/g,""); },
+    escapeHtml: function(str){
+      var div = document.createElement('div'); div.textContent = str == null ? "" : str; return div.innerHTML;
+    },
+    pad: function(n){ return n < 10 ? "0"+n : ""+n; },
+    parseFormatting: function(text){
+      if(!text) return "";
+      var safe = Utils.escapeHtml(text);
+      safe = safe.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      safe = safe.replace(/\*(.*?)\*/g, '<em>$1</em>');
+      safe = safe.replace(/~~(.*?)~~/g, '<del>$1</del>'); // Suport pentru text tăiat
+      return safe;
+    },
+
+    /* ============ EVIDENȚIERE TERMEN CĂUTAT (highlight) ============
+       Grupuri de litere echivalente diacritic (ă/â ~ a, î ~ i, ș/ş ~ s, ț/ţ ~ t),
+       astfel încât căutarea găsește termenul indiferent dacă utilizatorul
+       scrie sau nu diacritice. */
+    _diacriticClasses: [
+      ['a','ă','â','A','Ă','Â'],
+      ['i','î','I','Î'],
+      ['s','ș','ş','S','Ș','Ş'],
+      ['t','ț','ţ','T','Ț','Ţ']
+    ],
+    _escapeRegExp: function(str){ return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); },
+    _charClass: function(ch){
+      for (var i=0;i<Utils._diacriticClasses.length;i++){
+        if (Utils._diacriticClasses[i].indexOf(ch) !== -1) return Utils._diacriticClasses[i].join('');
+      }
+      return null;
+    },
+    /* Construiește un regex global, case-insensitive și diacritic-insensitive pornind
+       de la textul introdus de utilizator în bara de căutare. Returnează null dacă
+       query e gol. */
+    buildHighlightRegex: function(query){
+      if (!query) return null;
+      var chars = String(query).trim();
+      if (!chars) return null;
+      chars = chars.split('');
+      var pattern = chars.map(function(ch){
+        var cls = Utils._charClass(ch);
+        return cls ? '[' + cls + ']' : Utils._escapeRegExp(ch);
+      }).join('');
+      if (!pattern) return null;
+      try { return new RegExp(pattern, 'gi'); } catch(e){ return null; }
+    },
+    /* Elimină evidențierile anterioare dintr-un container, fără să atingă
+       restul formatării HTML (<strong>, <em>, <del>, etc.). */
+    clearHighlights: function(root){
+      if (!root) return;
+      var marks = root.querySelectorAll('mark.highlight-match');
+      for (var i=0;i<marks.length;i++){
+        var mark = marks[i], parent = mark.parentNode; if (!parent) continue;
+        parent.replaceChild(document.createTextNode(mark.textContent), mark);
+        parent.normalize();
+      }
+    },
+    /* Evidențiază termenul căutat în interiorul unui container, umblând DOAR
+       prin nodurile de tip text (TreeWalker) — astfel formatarea HTML deja
+       existentă (<strong>, <em>, <del>, <br>, etc.) rămâne intactă, iar
+       evidențierea funcționează chiar și pe text aflat înăuntrul acelor tag-uri. */
+    highlightMatches: function(root, query){
+      if (!root) return;
+      Utils.clearHighlights(root);
+      var regex = Utils.buildHighlightRegex(query);
+      if (!regex) return;
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+      var textNodes = [], node;
+      while ((node = walker.nextNode())) {
+        if (node.nodeValue && node.nodeValue.length) textNodes.push(node);
+      }
+      textNodes.forEach(function(textNode){
+        var text = textNode.nodeValue;
+        regex.lastIndex = 0;
+        if (!regex.test(text)) return;
+        regex.lastIndex = 0;
+        var frag = document.createDocumentFragment(), lastIndex = 0, match;
+        while ((match = regex.exec(text)) !== null) {
+          if (match[0].length === 0) { regex.lastIndex++; continue; }
+          if (match.index > lastIndex) frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+          var mark = document.createElement('mark');
+          mark.className = 'highlight-match';
+          mark.textContent = match[0];
+          frag.appendChild(mark);
+          lastIndex = match.index + match[0].length;
+        }
+        if (lastIndex < text.length) frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+        textNode.parentNode.replaceChild(frag, textNode);
+      });
+    }
+  };
+
+  function debounce(func, wait) {
+    var timeout;
+    return function() {
+      var context = this, args = arguments;
+      clearTimeout(timeout);
+      timeout = setTimeout(function() { func.apply(context, args); }, wait);
+    };
+  }
+
+  function toast(msg){
+    var t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show");
+    setTimeout(function(){ t.classList.remove("show"); }, 2400);
+  }
+
+  function showAlert(title, msg) {
+    document.getElementById('alert-title').textContent = title;
+    document.getElementById('alert-message').textContent = msg;
+    document.getElementById('alert-overlay').classList.add('show');
+  }
+  document.getElementById('alert-ok-btn').addEventListener('click', function(){
+    document.getElementById('alert-overlay').classList.remove('show');
+  });
+
+  // NIVEL 3 (headless): fetch() către API_URL în loc de google.script.run. Content-Type
+  // trebuie să rămână text/plain (NU application/json) ca cererea să rămână "simplă" și
+  // să evite un preflight CORS OPTIONS pe care Apps Script nu-l poate răspunde corect
+  // (ContentService nu expune setHeader pentru CORS) — vezi
+  // claude/blueprint-migrare-headless-doPost.md, secțiunea 2.
+  function apiCall(action, payload){
+    payload = payload || {}; payload.action = action;
+    if (!payload.token && Session.current && Session.current.token) payload.token = Session.current.token;
+    return fetch(API_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(function(r){ return r.json(); }).then(function(response){
+      // Tratare centralizată a sesiunii invalide/expirate — { status, mesaj, cod }.
+      // `cod` e prezent pe orice eroare legată de sesiune (vezi blueprint, secțiunea 4);
+      // gestionat aici o singură dată, ca niciun punct de apel individual (15+ acțiuni)
+      // să nu mai trebuiască să-l trateze separat.
+      if (response && response.status === 'eroare' && (response.cod === 'sesiune_invalida' || response.cod === 'sesiune_expirata')){
+        Session.clear();
+        try { document.getElementById('app-shell').hidden = true; } catch(eShell){}
+        try { document.getElementById('auth-screen').hidden = false; } catch(eAuth){}
+      }
+      return response;
+    }).catch(function(error){
+      return { status: "eroare", mesaj: "Eroare server: " + (error && error.message ? error.message : String(error)) };
+    });
+  }
+
+  // iOS: după un login reușit, mutăm token-ul de sesiune în URL-ul paginii, ca un icon
+  // adăugat ulterior pe Home Screen să-l prindă direct — vezi audit 17.09.2026. Pe alte
+  // platforme (unde localStorage oricum persistă) nu facem nimic, ca să nu introducem
+  // un reload suplimentar inutil.
+  //
+  // NOTĂ istorică (corectat după test pe iPhone, pe vechea arhitectură cu iframe Apps
+  // Script): o simplă atribuire `window.top.location = url` era blocată silențios de
+  // sandbox-ul iframe-ului atunci când rula în afara stivei sincrone a unui gest de user
+  // (ex. într-un .then() după un apel fetch, ca aici). Pe Nivel 3 (fără iframe — pagina
+  // e ea însăși top-level pe Netlify) constrângerea de sandbox nu se mai aplică, dar
+  // păstrăm intenționat mecanismul `<a target="_top">` navigat programatic: funcționează
+  // identic în afara unui iframe și nu are niciun downside — mai sigur să nu umblăm la
+  // ceva testat pe dispozitive reale decât să presupunem că simplificarea e echivalentă.
+  function esteIOS_(){
+    try { return /iP(hone|od|ad)/.test(navigator.platform) || (navigator.userAgent.indexOf('Mac') !== -1 && 'ontouchend' in document); }
+    catch(e){ return false; }
+  }
+  function persistaTokenInUrlPeIOS_(token){
+    // Totul într-un singur try/catch, inclusiv verificările de gardă — un
+    // ReferenceError pe START_URL nedefinit (bug reprodus pe iPad, 17.09.2026) a
+    // scăpat înainte în afara try-ului și bloca tot restul callback-ului de succes,
+    // inclusiv enterApp(). Acum orice eșec aici e strict non-fatal.
+    try {
+      if (!token || typeof START_URL === 'undefined' || !START_URL || !esteIOS_()) return;
+      var url = START_URL.split('?')[0] + '?t=' + encodeURIComponent(token);
+      var a = document.createElement('a');
+      a.href = url;
+      a.target = '_top';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function(){ try{ document.body.removeChild(a); }catch(eRemove){} }, 0);
+    } catch(e){ /* non-fatal — rămâne fallback-ul pe localStorage pentru restul sesiunii curente */ }
+  }
+
+  // Reconstruiește manifest.json (ca data: URI) și îl injectează în <link id="manifest-link">
+  // din <head>, cu start_url care include tokenul curent de sesiune — echivalentul
+  // client-side al fostului MANIFEST_HREF calculat server-side în doGet() (eliminat pe
+  // Nivel 3, vezi claude/blueprint-migrare-headless-doPost.md). Apelată o dată la
+  // pornirea paginii (fără token, dacă nu există încă sesiune) și din nou după orice
+  // autentificare reușită (login, verify_otp, restore_session), ca iconița salvată pe
+  // Home Screen să ducă mereu la un link cu sesiune validă — la fel ca înainte.
+  function refreshManifestLink_(token){
+    try {
+      var startUrl = token ? (START_URL + (START_URL.indexOf("?") > -1 ? "&" : "?") + "t=" + encodeURIComponent(token)) : START_URL;
+      var manifest = {
+        name: "Opera Comică — Program & HR",
+        short_name: "Opera Comică",
+        start_url: startUrl || ".",
+        scope: START_URL || undefined,
+        display: "browser", // era "standalone" — schimbat pentru a evita ștergerea localStorage pe iOS (vezi nota din <head>)
+        orientation: "portrait",
+        background_color: "#3B1E38",
+        theme_color: "#3B1E38",
+        icons: [ { src: ICON_URL, sizes: "192x192", type: "image/png", purpose: "any" } ]
+      };
+      var href = "data:application/manifest+json," + encodeURIComponent(JSON.stringify(manifest));
+      var link = document.getElementById('manifest-link');
+      if (link) link.setAttribute('href', href);
+    } catch (eManifest) { /* non-fatal — manifestul PWA nu trebuie să blocheze restul aplicației */ }
+  }
+
+  var Session = {
+    current: null,
+    load: function(){
+      // NIVEL 3: nu mai există BOOTSTRAP_SESSION (venea din doGet(), eliminat) —
+      // bootstrap-ul de sesiune din URL (?t=token) e tratat separat, la finalul acestui
+      // script, prin apiCall('restore_session', ...), înainte de a ajunge aici.
+      try{ var raw = window.localStorage.getItem(SESSION_KEY) || window.sessionStorage.getItem(SESSION_KEY); if (raw) Session.current = JSON.parse(raw); }catch(e){ Session.current = null; }
+    },
+    save: function(s){ Session.current = s; var store = (s.remember !== false) ? window.localStorage : window.sessionStorage; try{ window.localStorage.removeItem(SESSION_KEY); window.sessionStorage.removeItem(SESSION_KEY); store.setItem(SESSION_KEY, JSON.stringify(s)); }catch(e){} },
+    clear: function(){ Session.current = null; try{ window.localStorage.removeItem(SESSION_KEY); window.sessionStorage.removeItem(SESSION_KEY); }catch(e){} },
+    hasModule: function(mod){ return !!(Session.current && Session.current.config && Session.current.config.modules.indexOf(mod) !== -1); }
+  };
+
+  var pendingEmail = null;
+  var elEmail = document.getElementById('auth-email'), elPin = document.getElementById('parola-acces'), elRemember = document.getElementById('auth-remember');
+  var elError = document.getElementById('auth-error'), elStepCred = document.getElementById('auth-step-credentials'), elStepOtp = document.getElementById('auth-step-otp');
+  var elOtp = document.getElementById('auth-otp'), elOtpError = document.getElementById('auth-otp-error'), elOtpMsg = document.getElementById('auth-otp-msg');
+  var elLoading = document.getElementById('auth-loading');
+
+  function setAuthLoading(on){ elLoading.hidden = !on; document.getElementById('auth-submit').disabled = on; document.getElementById('auth-otp-submit').disabled = on; }
+
+  document.getElementById('auth-submit').addEventListener('click', function(){
+    elError.textContent = ""; var email = elEmail.value.trim(), pin = elPin.value;
+    if (!email || !pin){ elError.textContent = t('err_missing_credentials'); return; }
+    setAuthLoading(true);
+    apiCall('login', { email: email, pin: pin }).then(function(res){
+      setAuthLoading(false);
+      if (res.status === 'succes'){ Session.save({ token: res.token, rolBrut: res.rolBrut, config: res.config, nume: res.nume, email: email.trim().toLowerCase(), remember: elRemember ? elRemember.checked : true }); try{ persistaTokenInUrlPeIOS_(res.token); }catch(eIOS){} try{ refreshManifestLink_(res.token); }catch(eManifest){} enterApp(); }
+      else if (res.status === 'otp_trimis'){ pendingEmail = email.trim().toLowerCase(); elOtpMsg.textContent = res.mesaj || (t('otp_sent_fallback') + email); elOtp.value = ""; elOtpError.textContent = ""; elStepCred.hidden = true; elStepOtp.hidden = false; elOtp.focus(); }
+      else { elError.textContent = res.mesaj || t('err_generic_login'); }
+    });
+  });
+  elPin.addEventListener('keydown', function(e){ if (e.key === 'Enter') document.getElementById('auth-submit').click(); });
+
+  // Ochișorul de vizualizare a parolei — comută type="password" <-> type="text" fără să atingă valoarea introdusă.
+  (function(){
+    var btn = document.getElementById('pwd-toggle-acces');
+    if (!btn) return;
+    var eyeOn = btn.querySelector('.pwd-eye-on'), eyeOff = btn.querySelector('.pwd-eye-off');
+    btn.addEventListener('click', function(){
+      var showing = elPin.type === 'text';
+      elPin.type = showing ? 'password' : 'text';
+      eyeOn.hidden = !showing; eyeOff.hidden = showing;
+      elPin.focus();
+    });
+  })();
+
+  document.getElementById('auth-otp-submit').addEventListener('click', function(){
+    elOtpError.textContent = ""; var cod = elOtp.value.trim();
+    if (!cod){ elOtpError.textContent = t('err_missing_otp'); return; }
+    setAuthLoading(true);
+    apiCall('verify_otp', { email: pendingEmail, cod: cod }).then(function(res){
+      setAuthLoading(false);
+      if (res.status === 'succes'){ Session.save({ token: res.token, rolBrut: res.rolBrut, config: res.config, nume: res.nume, email: pendingEmail, remember: elRemember ? elRemember.checked : true }); try{ persistaTokenInUrlPeIOS_(res.token); }catch(eIOS){} try{ refreshManifestLink_(res.token); }catch(eManifest){} enterApp(); }
+      else { elOtpError.textContent = res.mesaj || t('err_wrong_otp'); }
+    });
+  });
+  elOtp.addEventListener('keydown', function(e){ if (e.key === 'Enter') document.getElementById('auth-otp-submit').click(); });
+  document.getElementById('auth-otp-back').addEventListener('click', function(){ elStepOtp.hidden = true; elStepCred.hidden = false; pendingEmail = null; });
+  document.getElementById('logout-btn').addEventListener('click', function(){ var tok = Session.current ? Session.current.token : null; apiCall('logout', { token: tok }).finally(function(){ Session.clear(); window.location.reload(); }); });
+
+  // Comutator de limbă RO/EN — discret, în colțul ecranului, disponibil pe login și în aplicație.
+  document.querySelectorAll('.lang-toggle-btn').forEach(function(btn){ btn.addEventListener('click', function(){ setLang(currentLang === 'ro' ? 'en' : 'ro'); }); });
+  applyStaticTranslations();
+
+  function syncHeaderHeight() { var header = document.querySelector('.app-header'); if (header) { document.documentElement.style.setProperty('--header-h', header.offsetHeight + 'px'); } }
+  window.addEventListener('resize', syncHeaderHeight);
+
+  var activeMainTab = null; var loadedModules = {};
+  var overlay = document.getElementById('menu-overlay'), menuBtn = document.getElementById('hamburger-btn'), menuClose = document.getElementById('menu-close');
+
+  function openMenu(){ overlay.classList.add('show'); }
+  function closeMenu(){ overlay.classList.remove('show'); }
+  menuBtn.addEventListener('click', openMenu); menuClose.addEventListener('click', closeMenu);
+  overlay.addEventListener('click', function(e){ if(e.target === overlay) closeMenu(); });
+  document.getElementById('btn-back-home').addEventListener('click', function(){ if (Session.current && Session.current.token) switchMainTab('home'); });
+  document.getElementById('brand-logo').addEventListener('click', function(){ if (Session.current && Session.current.token) switchMainTab('home'); });
+
+  var SVG_ICONS = {
+    home: '<svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>',
+    stagiune: '<svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>',
+    saptamanal: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>',
+    hr: '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>',
+    istoric: '<svg viewBox="0 0 24 24"><path d="M3 3v5h5"></path><path d="M3.05 13a9 9 0 1 0 2.13-6.36L3 8"></path><polyline points="12 7 12 12 16 14"></polyline></svg>'
+  };
+
+  function renderMainTabs(){
+    var nav = document.getElementById('mobile-nav'); nav.innerHTML = "";
+    var tabs = [ { id:'home', label:t('nav_home'), icon: SVG_ICONS.home } ];
+    if (Session.hasModule('STAGIUNE')) tabs.push({ id:'stagiune', label:t('nav_stagiune'), icon: SVG_ICONS.stagiune });
+    if (Session.hasModule('SAPTAMANAL')) tabs.push({ id:'saptamanal', label:t('nav_saptamanal'), icon: SVG_ICONS.saptamanal });
+    if (Session.hasModule('HR')) tabs.push({ id:'hr', label:t('nav_hr'), icon: SVG_ICONS.hr });
+    if (Session.current && Session.current.rolBrut === 'SUPERADMIN') tabs.push({ id:'istoric', label:t('nav_istoric'), icon: SVG_ICONS.istoric });
+
+    tabs.forEach(function(t){
+      var btn = document.createElement('button'); btn.className = 'nav-btn' + (t.id === activeMainTab ? ' active' : ''); btn.setAttribute('data-tab-id', t.id);
+      btn.innerHTML = '<span class="icon-svg">' + t.icon + '</span> ' + Utils.escapeHtml(t.label);
+      btn.addEventListener('click', function(){ switchMainTab(t.id); closeMenu(); }); nav.appendChild(btn);
+    });
+    if (!activeMainTab && tabs.length > 0) switchMainTab('home');
+  }
+
+  function renderHomeCards() {
+    var wrap = document.getElementById('home-cards-wrap'); wrap.innerHTML = '';
+    var n = Session.current.nume || Session.current.email;
+    document.getElementById('home-welcome-title').textContent = t('home_greeting_prefix') + Utils.escapeHtml(n.split(' ')[0]) + "!";
+
+    var cards = [];
+    if (Session.hasModule('STAGIUNE')) cards.push({ id: 'stagiune', icon: SVG_ICONS.stagiune, title: t('home_card_stagiune_title'), desc: t('home_card_stagiune_desc') });
+    if (Session.hasModule('SAPTAMANAL')) cards.push({ id: 'saptamanal', icon: SVG_ICONS.saptamanal, title: t('home_card_saptamanal_title'), desc: t('home_card_saptamanal_desc') });
+    if (Session.hasModule('HR')) cards.push({ id: 'hr', icon: SVG_ICONS.hr, title: 'HR & Cereri', desc: 'Depune sau verifică statusul cererilor de colaborare și CFS.' });
+
+    cards.forEach(function(c) {
+      var cardEl = document.createElement('div'); cardEl.className = 'home-card';
+      cardEl.innerHTML = '<div class="icon"><span class="icon-svg">' + c.icon + '</span></div><div><h3>' + c.title + '</h3><p>' + c.desc + '</p></div>';
+      cardEl.addEventListener('click', function() { switchMainTab(c.id); }); wrap.appendChild(cardEl);
+    });
+  }
+
+  function switchMainTab(tabId){
+    activeMainTab = tabId;
+    document.getElementById('mod-home').hidden = (tabId !== 'home'); document.getElementById('mod-stagiune').hidden = (tabId !== 'stagiune'); document.getElementById('mod-saptamanal').hidden = (tabId !== 'saptamanal'); document.getElementById('mod-hr').hidden = (tabId !== 'hr'); document.getElementById('mod-istoric').hidden = (tabId !== 'istoric');
+    document.getElementById('header-stagiune-controls').hidden = (tabId !== 'stagiune'); document.getElementById('header-saptamanal-controls').hidden = (tabId !== 'saptamanal');
+    document.getElementById('btn-back-home').hidden = (tabId === 'home');
+    document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-tab-id') === tabId); });
+    updateEditToggleVisibility();
+
+    if (tabId === 'home') renderHomeCards();
+    if (tabId === 'stagiune') { if (!loadedModules.stagiune) { loadedModules.stagiune = true; StagiuneModule.init(); } else { StagiuneModule.refresh(); } }
+    if (tabId === 'saptamanal') { if (!loadedModules.saptamanal) { loadedModules.saptamanal = true; SaptamanalModule.init(); } else { SaptamanalModule.refresh(); } }
+    if (tabId === 'hr') { if (!loadedModules.hr) { loadedModules.hr = true; HrModule.init(); } else { HrModule.fetchData(); } }
+    if (tabId === 'istoric') { if (!loadedModules.istoric) { loadedModules.istoric = true; IstoricModule.init(); } else { IstoricModule.fetchData(); } }
+    window.scrollTo(0,0); setTimeout(syncHeaderHeight, 50);
+  }
+
+  var editModeByModule = { stagiune:false, saptamanal:false };
+
+  document.getElementById('edit-toggle').addEventListener('click', function(){
+    if (!activeMainTab || activeMainTab === 'home' || activeMainTab === 'hr') return;
+    editModeByModule[activeMainTab] = !editModeByModule[activeMainTab];
+    updateEditToggleVisibility();
+    if (activeMainTab === 'stagiune') StagiuneModule.onEditModeChange();
+    if (activeMainTab === 'saptamanal') SaptamanalModule.onEditModeChange();
+  });
+
+  function updateEditToggleVisibility(){
+    var btn = document.getElementById('edit-toggle'), conf = Session.current.config, canEdit = false;
+    if (activeMainTab === 'stagiune' && conf.canEditStg) canEdit = true;
+    if (activeMainTab === 'saptamanal' && conf.canEditSapt) canEdit = true;
+    
+    btn.hidden = !canEdit; if (!canEdit) return;
+    var iconEl = btn.querySelector('.icon'), textEl = btn.querySelector('.text');
+    if (editModeByModule[activeMainTab]) {
+      iconEl.innerHTML = '<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>'; btn.classList.add('active');
+    } else {
+      iconEl.innerHTML = '<svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>'; btn.classList.remove('active');
+    }
+    textEl.textContent = t('edit_toggle_label');
+  }
+
+  function isEditOn(mod){ return !!editModeByModule[mod]; }
+
+  function enterApp(){
+    document.getElementById('auth-screen').hidden = true; document.getElementById('app-shell').hidden = false;
+    var conf = Session.current.config, n = Session.current.nume || Session.current.email;
+    document.getElementById('user-chip').textContent = conf.displayTitle ? (n + " · " + conf.displayTitle) : n;
+    document.getElementById('user-email-chip').textContent = Session.current.email || "";
+
+    var btnPwd = document.getElementById('btn-schimba-parola');
+    if (btnPwd) btnPwd.hidden = (Session.current.rolBrut === 'COLABORATOR');
+    renderMainTabs(); setTimeout(syncHeaderHeight, 100);
+  }
+
+  // ============ SCHIMBARE PAROLĂ ============
+  var pwdOverlay = document.getElementById('pwd-overlay');
+  document.getElementById('btn-schimba-parola').addEventListener('click', function() {
+    closeMenu(); document.getElementById('pwd-old').value = ''; document.getElementById('pwd-new').value = ''; document.getElementById('pwd-confirm').value = ''; document.getElementById('pwd-msg').textContent = ''; pwdOverlay.classList.add('show');
+  });
+  function closePwdModal() { pwdOverlay.classList.remove('show'); }
+  document.getElementById('pwd-close').addEventListener('click', closePwdModal); document.getElementById('pwd-cancel').addEventListener('click', closePwdModal);
+  pwdOverlay.addEventListener('click', function(e){ if(e.target === pwdOverlay) closePwdModal(); });
+
+  document.getElementById('pwd-save').addEventListener('click', function() {
+    var veche = document.getElementById('pwd-old').value, noua = document.getElementById('pwd-new').value, conf = document.getElementById('pwd-confirm').value, msg = document.getElementById('pwd-msg'), btnSave = document.getElementById('pwd-save');
+    if (!veche || !noua || !conf) { msg.textContent = 'Completează toate câmpurile.'; msg.style.color = 'var(--sm)'; return; }
+    if (noua !== conf) { msg.textContent = 'Parolele noi nu coincid.'; msg.style.color = 'var(--sm)'; return; }
+    if (noua.length < 6) { msg.textContent = 'Parola nouă trebuie minim 6 caractere.'; msg.style.color = 'var(--sm)'; return; }
+
+    msg.textContent = '⏳ Se actualizează...'; msg.style.color = 'var(--ink)'; btnSave.disabled = true;
+    apiCall('change_password', { parolaVeche: veche, parolaNoua: noua }).then(function(res) {
+      btnSave.disabled = false;
+      if (res.status === 'succes') { toast('✅ Parola a fost schimbată cu succes!'); closePwdModal(); } else { msg.textContent = '❌ ' + (res.mesaj || 'Eroare'); msg.style.color = 'var(--sm)'; }
+    });
+  });
+
+  /* MODUL STAGIUNE */
+  var StagiuneModule = (function(){
+    var MONTHS = {"2026-07":"Iulie 2026","2026-08":"August 2026","2026-09":"Septembrie 2026","2026-10":"Octombrie 2026","2026-11":"Noiembrie 2026","2026-12":"Decembrie 2026","2027-01":"Ianuarie 2027","2027-02":"Februarie 2027","2027-03":"Martie 2027","2027-04":"Aprilie 2027","2027-05":"Mai 2027","2027-06":"Iunie 2027"};
+    var MONTH_ORDER = Object.keys(MONTHS);
+    var MONTH_YEAR_MAP = {"iulie":2026,"august":2026,"septembrie":2026,"octombrie":2026,"noiembrie":2026,"decembrie":2026,"ianuarie":2027,"februarie":2027,"martie":2027,"aprilie":2027,"mai":2027,"iunie":2027};
+    var MONTH_INDEX_RO = {"ianuarie":1,"februarie":2,"martie":3,"aprilie":4,"mai":5,"iunie":6,"iulie":7,"august":8,"septembrie":9,"octombrie":10,"noiembrie":11,"decembrie":12};
+    var VENUES = [{key:"SM",cls:"sm",name:"Sala Mare"},{key:"MZ",cls:"mz",name:"Mozart"},{key:"UG",cls:"ug",name:"UG"},{key:"CU",cls:"cu",name:"Curte"}];
+    var DOW_FULL = ["Luni","Marți","Miercuri","Joi","Vineri","Sâmbătă","Duminică"], MONTH_NAME_FULL = ["ianuarie","februarie","martie","aprilie","mai","iunie","iulie","august","septembrie","octombrie","noiembrie","decembrie"];
+
+    var eventsByDate = {}, coordsByDate = {}, canEdit = false, currentMonth = MONTH_ORDER[0], activeVenueFilter = "ALL", searchQuery = "", activeDate = null, todayISO = new Date().toISOString().slice(0,10);
+    (function(){ var ym = todayISO.slice(0,7); if (MONTH_ORDER.indexOf(ym) !== -1) currentMonth = ym; })();
+
+    function setFooter(msg){ document.getElementById("stg-footer-status").textContent = msg; }
+    function extractDayNumber(raw){
+      if (raw == null) return null; var s = String(raw).trim(); if (!s) return null;
+      var iso = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/); if (iso) return parseInt(iso[3],10);
+      var dmy = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/); if (dmy) return parseInt(dmy[1],10);
+      var dOnly = s.match(/^(\d{1,2})$/); if (dOnly) return parseInt(dOnly[1],10);
+      var loose = s.match(/^0*(\d{1,2})(?!\d)/); if (loose) return parseInt(loose[1],10);
+      return null;
+    }
+
+    function parseWideMonthlyGrid(rows){
+      if (!rows || rows.length < 2) return {};
+      var result = {}, activeBlocks = [];
+      for (var r = 0; r < rows.length; r++){
+        var row = rows[r]; if (!row) continue;
+        var isHeaderRow = false, tempBlocks = [], numCols = row.length;
+        for (var c = 0; c + 5 < numCols; c += 6) {
+          var possibleMonthKey = Utils.normalizeKey(row[c+2]), monthIdx = MONTH_INDEX_RO[possibleMonthKey], year = MONTH_YEAR_MAP[possibleMonthKey];
+          if (monthIdx && year) { isHeaderRow = true; tempBlocks.push({ dayCol:c+1, smCol:c+2, mzCol:c+3, ugCol:c+4, cuCol:c+5, monthIdx:monthIdx, year:year, monthKey:possibleMonthKey }); }
+        }
+        if (isHeaderRow && tempBlocks.length > 0) { activeBlocks = tempBlocks; continue; }
+        if (activeBlocks.length === 0) continue;
+        for (var bi = 0; bi < activeBlocks.length; bi++){
+          var b = activeBlocks[bi]; if (row.length <= b.cuCol) continue;
+          var dayNum = extractDayNumber(row[b.dayCol]); if (!dayNum || dayNum < 1 || dayNum > 31) continue;
+          var iso = b.year + "-" + Utils.pad(b.monthIdx) + "-" + Utils.pad(dayNum), entry = result[iso] || {SM:"",MZ:"",UG:"",CU:""};
+          if (!coordsByDate[iso]) coordsByDate[iso] = {};
+          coordsByDate[iso].SM = { r:r+1, c:b.smCol+1 }; coordsByDate[iso].MZ = { r:r+1, c:b.mzCol+1 }; coordsByDate[iso].UG = { r:r+1, c:b.ugCol+1 }; coordsByDate[iso].CU = { r:r+1, c:b.cuCol+1 };
+          var sm=row[b.smCol], mz=row[b.mzCol], ug=row[b.ugCol], cu=row[b.cuCol];
+          if (sm != null && String(sm).trim() !== "" && Utils.normalizeKey(sm) !== b.monthKey) entry.SM = String(sm).trim();
+          if (mz != null && String(mz).trim() !== "") entry.MZ = String(mz).trim();
+          if (ug != null && String(ug).trim() !== "") entry.UG = String(ug).trim();
+          if (cu != null && String(cu).trim() !== "") entry.CU = String(cu).trim();
+          result[iso] = entry;
+        }
+      }
+      return result;
+    }
+
+    function loadData(){
+      setFooter("Se sincronizează…");
+      return apiCall('get_stagiune', {}).then(function(res){
+        if (res.status !== 'succes'){ setFooter("⚠️ Nu s-au putut încărca datele."); throw new Error(res.mesaj); }
+        canEdit = Session.current.config.canEditStg; eventsByDate = parseWideMonthlyGrid(res.date);
+        setFooter("✅ Actualizat " + new Date().toLocaleTimeString("ro-RO", {hour:"2-digit", minute:"2-digit"})); return true;
+      });
+    }
+
+    function renderTabs(){
+      var wrap = document.getElementById("stg-tabs"); wrap.innerHTML = "";
+      MONTH_ORDER.forEach(function(key){
+        var btn = document.createElement("button"); btn.className = "tab-btn" + (key === currentMonth ? " active" : ""); btn.textContent = translateDateLabel(MONTHS[key]);
+        btn.addEventListener("click", function(){ currentMonth = key; renderTabs(); renderMonth(); }); wrap.appendChild(btn);
+      });
+      var active = wrap.querySelector(".tab-btn.active"); if (active) active.scrollIntoView({inline:"center", block:"nearest"});
+    }
+
+    function renderMonth(){
+      var isSearching = searchQuery.length > 0;
+      document.getElementById("stg-month-title").textContent = isSearching ? "Rezultatele căutării: \"" + searchQuery + "\"" : translateDateLabel(MONTHS[currentMonth]);
+      var list = document.getElementById("stg-calendar-grid"); list.innerHTML = "";
+      var eventCount = 0, visibleDays = 0, editOn = isEditOn('stagiune'), allDates = Object.keys(eventsByDate).sort(), q = searchQuery.toLowerCase();
+      document.getElementById('mod-stagiune').classList.toggle('stagiune-edit-on', editOn);
+      
+      allDates.forEach(function(iso){
+        var parts = iso.split("-"), ym = parts[0] + "-" + parts[1];
+        if (!isSearching && ym !== currentMonth) return;
+
+        var year = parseInt(parts[0],10), monthIdx = parseInt(parts[1],10)-1, d = parseInt(parts[2],10), jsDow = new Date(year, monthIdx, d).getDay();
+        var mondayFirst = (jsDow + 6) % 7, isWeekend = mondayFirst === 5 || mondayFirst === 6, isToday = iso === todayISO, dayData = eventsByDate[iso] || {};
+        var venuesToShow = VENUES.filter(function(v){ return activeVenueFilter === "ALL" || v.key === activeVenueFilter; }), matchingChips = [];
+
+        venuesToShow.forEach(function(v){
+          var txt = (dayData[v.key]||"").trim(); if (!txt) return;
+          if (isSearching) {
+            var chipMatch = txt.toLowerCase().indexOf(q) !== -1 || v.name.toLowerCase().indexOf(q) !== -1;
+            var dateMatch = (DOW_FULL[mondayFirst] + " " + d + " " + MONTH_NAME_FULL[monthIdx]).toLowerCase().indexOf(q) !== -1;
+            if (chipMatch || dateMatch) matchingChips.push({venue:v, text:txt});
+          } else { matchingChips.push({venue:v, text:txt}); }
+        });
+
+        if (matchingChips.length === 0) { if (isSearching || activeVenueFilter !== "ALL") return; }
+        visibleDays++;
+        var row = document.createElement("div"); row.className = "day-row" + (isWeekend?" weekend":"") + (isToday?" today":""); row.setAttribute("data-date", iso);
+
+        var dateCol = document.createElement("div"); dateCol.className = "day-date-col";
+        var dowEl = document.createElement("div"); dowEl.className="dow-full"; dowEl.textContent = translateDateLabel(DOW_FULL[mondayFirst]);
+        var dateNumEl = document.createElement("div"); dateNumEl.className="date-num"; dateNumEl.textContent = translateDateLabel(d+" "+MONTH_NAME_FULL[monthIdx]) + (isSearching ? " " + year : "");
+        dateCol.appendChild(dowEl); dateCol.appendChild(dateNumEl);
+        if (isToday){ var badge=document.createElement("div"); badge.className="today-badge"; badge.textContent="azi"; dateCol.appendChild(badge); }
+        if (isSearching && searchQuery) { Utils.highlightMatches(dateCol, searchQuery); }
+        row.appendChild(dateCol);
+
+        var chipRow = document.createElement("div"); chipRow.className = "chip-row";
+        matchingChips.forEach(function(m){
+          eventCount++; var chip = document.createElement("div"); chip.className = "ev-chip " + m.venue.cls;
+          var strongEl = document.createElement("strong"); strongEl.textContent = t('venue_' + m.venue.key) || m.venue.name; chip.appendChild(strongEl); chip.appendChild(document.createElement("br"));
+          var lines = m.text.split("\n");
+          lines.forEach(function(ln, idx){
+            var span = document.createElement("span");
+            span.innerHTML = Utils.parseFormatting(ln);
+            chip.appendChild(span);
+            if (idx < lines.length-1) chip.appendChild(document.createElement("br"));
+          });
+          // Evidențiază termenul căutat (sală/locație și conținutul evenimentului)
+          if (isSearching && searchQuery) { Utils.highlightMatches(chip, searchQuery); }
+          chipRow.appendChild(chip);
+        });
+        row.appendChild(chipRow); row.addEventListener("click", function(){ openDayModal(this.getAttribute("data-date")); }); list.appendChild(row);
+      });
+
+      if (visibleDays === 0){ var empty = document.createElement("div"); empty.style.cssText = "text-align:center;color:var(--muted);padding:30px;font-size:14px;"; empty.textContent = "Niciun rezultat pentru filtrele curente."; list.appendChild(empty); }
+      document.getElementById("stg-month-count").textContent = eventCount + (eventCount===1?" eveniment afișat":" evenimente afișate"); setTimeout(syncHeaderHeight, 50);
+    }
+
+    /* ============ NAVIGARE AUTOMATĂ LA ZIUA CURENTĂ ============ */
+    function hasVenueMatch(dayData){
+      if (!dayData) return false;
+      var venues = activeVenueFilter === "ALL" ? VENUES : VENUES.filter(function(v){ return v.key === activeVenueFilter; });
+      return venues.some(function(v){ return (dayData[v.key] || "").trim() !== ""; });
+    }
+    /* Găsește ziua cea mai apropiată de azi (viitoare sau trecută) care are cel puțin
+       un eveniment vizibil în filtrul curent de sală. Returnează null dacă nu există
+       nicio zi cu evenimente (nu aruncă nicio eroare). */
+    function findClosestAvailableDate(){
+      var allDates = Object.keys(eventsByDate).sort();
+      if (!allDates.length) return null;
+      if (hasVenueMatch(eventsByDate[todayISO])) return todayISO;
+      var todayTime = new Date(todayISO).getTime(), best = null, bestDiff = Infinity;
+      allDates.forEach(function(iso){
+        if (!hasVenueMatch(eventsByDate[iso])) return;
+        var diff = Math.abs(new Date(iso).getTime() - todayTime);
+        if (diff < bestDiff) { bestDiff = diff; best = iso; }
+      });
+      return best;
+    }
+    function scrollToToday(){
+      var target = findClosestAvailableDate();
+      if (!target) return; // nicio zi cu evenimente — rămânem pe vederea implicită, fără eroare
+      var ym = target.slice(0,7);
+      if (ym !== currentMonth && MONTH_ORDER.indexOf(ym) !== -1) { currentMonth = ym; renderTabs(); renderMonth(); }
+      setTimeout(function(){
+        var row = document.querySelector('#stg-calendar-grid .day-row[data-date="' + target + '"]');
+        if (!row) return;
+        // .day-row are scroll-margin-top setat la înălțimea antetului fix, deci
+        // block:'start' lasă automat spațiul necesar sub bara fixă (resincronizăm
+        // --header-h chiar înainte, pentru cazul în care antetul și-a schimbat înălțimea).
+        syncHeaderHeight();
+        row.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        row.classList.add('focus-flash');
+        setTimeout(function(){ row.classList.remove('focus-flash'); }, 2200);
+      }, 80);
+    }
+
+    function formatDateRO(iso){ var p = iso.split("-").map(Number), dt = new Date(p[0], p[1]-1, p[2]), dowFull = ["Duminică","Luni","Marți","Miercuri","Joi","Vineri","Sâmbătă"][dt.getDay()]; return translateDateLabel(dowFull + ", " + p[2] + " " + MONTH_NAME_FULL[p[1]-1] + " " + p[0]); }
+    function openDayModal(iso){ activeDate = iso; document.getElementById("stg-day-title").textContent = formatDateRO(iso); document.getElementById("stg-day-sub").textContent = isEditOn('stagiune') ? "Mod editare activ — modifică programul pentru această zi." : "Programul zilei"; document.getElementById("stg-save-msg").textContent = ""; renderVenueBlocks(iso); renderDayActions(iso); document.getElementById("stg-day-overlay").classList.add("show"); }
+
+    function renderVenueBlocks(iso){
+      var wrap = document.getElementById("stg-venue-blocks"); wrap.innerHTML = ""; var dayData = eventsByDate[iso] || {SM:"",MZ:"",UG:"",CU:""}, editOn = isEditOn('stagiune');
+      VENUES.forEach(function(v){
+        var block = document.createElement("div"); block.className = "venue-block " + v.cls;
+        var label = document.createElement("div"); label.className = "vname"; var dotSpan = document.createElement("span"); dotSpan.className = "dot " + v.cls; label.appendChild(dotSpan); label.appendChild(document.createTextNode(v.name)); block.appendChild(label);
+        var val = dayData[v.key] || "";
+        if (editOn && canEdit){ var ta = document.createElement("textarea"); ta.value = val; ta.setAttribute("data-venue", v.key); ta.placeholder = "Fără eveniment — scrie aici pentru a adăuga"; block.appendChild(ta); } 
+        else if (val.trim()){ var textEl = document.createElement("div"); textEl.className="vtext"; textEl.textContent = val; block.appendChild(textEl); } 
+        else { var empty = document.createElement("div"); empty.className="vempty"; empty.textContent="Fără eveniment programat"; block.appendChild(empty); }
+        wrap.appendChild(block);
+      });
+    }
+
+    function renderDayActions(iso){
+      var actions = document.getElementById("stg-day-actions"); actions.innerHTML = "";
+      if (isEditOn('stagiune') && canEdit){
+        var closeBtn = document.createElement("button"); closeBtn.className="btn"; closeBtn.textContent="Anulează"; closeBtn.addEventListener("click", closeDayModal);
+        var saveBtn = document.createElement("button"); saveBtn.className="btn primary"; saveBtn.textContent="Salvează"; saveBtn.addEventListener("click", function(){ saveDay(iso); });
+        actions.appendChild(closeBtn); actions.appendChild(saveBtn);
+      } else {
+        var closeBtn = document.createElement("button"); closeBtn.className="btn primary"; closeBtn.textContent="Închide"; closeBtn.addEventListener("click", closeDayModal); actions.appendChild(closeBtn);
+      }
+    }
+
+    function saveDay(iso){
+      var msg = document.getElementById("stg-save-msg"); msg.textContent = "⏳ Se salvează în baza de date..."; msg.style.color = "var(--ink)";
+      var updated = {SM:"",MZ:"",UG:"",CU:""}, textareas = document.querySelectorAll("#stg-venue-blocks textarea"), promises = [], hasErrors = false;
+      textareas.forEach(function(t){
+        var vKey = t.getAttribute("data-venue"), newVal = t.value; updated[vKey] = newVal;
+        var oldVal = (eventsByDate[iso] && eventsByDate[iso][vKey]) || "";
+        if (newVal !== oldVal){ var coords = coordsByDate[iso] && coordsByDate[iso][vKey]; if (coords){ promises.push(apiCall('save_stagiune_cell', { rand: coords.r, coloana: coords.c, valoareNoua: newVal }).then(function(result){ if (result.status !== "succes") hasErrors = true; })); } }
+      });
+
+      if (promises.length > 0){
+        var btns = document.querySelectorAll("#stg-day-actions .btn"); btns.forEach(function(b){ b.disabled = true; });
+        Promise.all(promises).then(function(){
+          btns.forEach(function(b){ b.disabled = false; });
+          if (hasErrors){ msg.textContent = "❌ Eroare la salvare."; msg.style.color = "var(--sm)"; } 
+          else { msg.textContent = "✅ Salvare reușită!"; msg.style.color = "var(--cu)"; eventsByDate[iso] = updated; renderMonth(); setTimeout(closeDayModal, 1200); }
+        });
+      } else { msg.textContent = "Nu s-a detectat nicio modificare."; setTimeout(function(){ msg.textContent = ""; }, 2000); }
+    }
+
+    function closeDayModal(){ document.getElementById("stg-day-overlay").classList.remove("show"); activeDate = null; }
+
+    function bindStaticEvents(){
+      document.getElementById("stg-day-close").addEventListener("click", closeDayModal);
+      document.getElementById("stg-day-overlay").addEventListener("click", function(e){ if (e.target === this) closeDayModal(); });
+      document.getElementById('stg-search-toggle').addEventListener('click', function(e){
+        e.stopPropagation(); var wrap = document.getElementById('stg-search-wrap'), inp = document.getElementById('stg-search-input'), isShowing = wrap.classList.toggle('show');
+        this.classList.toggle('active', isShowing); if (isShowing) { inp.focus(); } else { inp.value = ''; searchQuery = ''; renderMonth(); } setTimeout(syncHeaderHeight, 250);
+      });
+      document.getElementById("stg-filter-bar").addEventListener("click", function(e){
+        var btn = e.target.closest(".filter-chip"); if (!btn || btn.id === "stg-search-toggle") return; activeVenueFilter = btn.getAttribute("data-venue");
+        this.querySelectorAll(".filter-chip:not(.search-toggle-btn)").forEach(function(c){ c.classList.remove("active"); }); btn.classList.add("active"); renderMonth();
+      });
+      var executeSearch = debounce(function(val) { searchQuery = val.trim(); renderMonth(); }, 300);
+      document.getElementById("stg-search-input").addEventListener("input", function(e){ executeSearch(e.target.value); });
+    }
+
+    var staticBound = false;
+    return { init: function(){ if (!staticBound){ bindStaticEvents(); staticBound = true; } loadData().then(function(){ renderTabs(); renderMonth(); scrollToToday(); }); }, onEditModeChange: function(){ renderMonth(); }, refresh: function(){ return loadData().then(function(){ renderTabs(); renderMonth(); scrollToToday(); }); } };
+  })();
+
+  /* MODUL PROGRAM SĂPTĂMÂNAL */
+  var SaptamanalModule = (function(){
+    var PROGRAM = [], DAY_ORDER = [], canEdit = false, currentEditId = null;
+    var contentEl = document.getElementById('sapt-content'), editOverlay = document.getElementById('sapt-edit-overlay'), editOra = document.getElementById('sapt-edit-ora'), editSala = document.getElementById('sapt-edit-sala'), editActivitate = document.getElementById('sapt-edit-activitate'), editCoord = document.getElementById('sapt-edit-coord'), editTech = document.getElementById('sapt-edit-tech'), editDelete = document.getElementById('sapt-edit-delete');
+    var addFab = document.getElementById('sapt-add-fab'), addOverlay = document.getElementById('sapt-add-overlay'), addZiSelect = document.getElementById('sapt-add-zi-select'), addZiCustom = document.getElementById('sapt-add-zi-custom'), addCat = document.getElementById('sapt-add-cat'), addOra = document.getElementById('sapt-add-ora'), addSala = document.getElementById('sapt-add-sala'), addActivitate = document.getElementById('sapt-add-activitate'), addCoord = document.getElementById('sapt-add-coord'), addTech = document.getElementById('sapt-add-tech');
+
+    function formatNiceDate(raw) {
+      if(!raw) return ""; var r = raw.trim(); if (/[a-zA-Z]{3,}/.test(r)) return r; 
+      var parts = r.match(/^(\d{1,2})[\.\/-](\d{1,2})(?:[\.\/-](\d{2,4}))?/);
+      if (parts) {
+        var d = parseInt(parts[1], 10), m = parseInt(parts[2], 10) - 1, now = new Date(), y = parts[3] ? parseInt(parts[3], 10) : now.getFullYear();
+        if (!parts[3]) { if (now.getMonth() === 11 && m === 0) y++; else if (now.getMonth() === 0 && m === 11) y--; }
+        if (y < 100) y += 2000; var dt = new Date(y, m, d);
+        if (!isNaN(dt.getTime())) { var dow = ["Duminică","Luni","Marți","Miercuri","Joi","Vineri","Sâmbătă"][dt.getDay()], months = ["ianuarie","februarie","martie","aprilie","mai","iunie","iulie","august","septembrie","octombrie","noiembrie","decembrie"]; return dow + ", " + d + " " + months[m]; }
+      }
+      return r;
+    }
+    var MONTH_INDEX_RO = {"ianuarie":1,"februarie":2,"martie":3,"aprilie":4,"mai":5,"iunie":6,"iulie":7,"august":8,"septembrie":9,"octombrie":10,"noiembrie":11,"decembrie":12};
+    /* Încearcă să deducă o dată calendaristică reală dintr-o etichetă de zi din tabel
+       (care poate fi "05.07.2026", "5/7", "Duminică, 5 iulie" etc.). Returnează un
+       obiect Date sau null dacă nu se poate determina — folosit doar pentru
+       poziționarea automată pe ziua curentă, nu afectează afișarea existentă. */
+    function parseZiToDate(raw){
+      if (!raw) return null;
+      var r = String(raw).trim(); if (!r) return null;
+      var now = new Date();
+      var numeric = r.match(/(\d{1,2})[.\/-](\d{1,2})(?:[.\/-](\d{2,4}))?/);
+      if (numeric) {
+        var d = parseInt(numeric[1],10), m = parseInt(numeric[2],10) - 1, y = numeric[3] ? parseInt(numeric[3],10) : now.getFullYear();
+        if (!numeric[3]) { if (now.getMonth() === 11 && m === 0) y++; else if (now.getMonth() === 0 && m === 11) y--; }
+        if (y < 100) y += 2000;
+        var dt = new Date(y, m, d);
+        if (!isNaN(dt.getTime()) && m >= 0 && m <= 11 && d >= 1 && d <= 31) return dt;
+      }
+      var norm = Utils.normalize(r);
+      var textMatch = norm.match(/(\d{1,2})\s+([a-z]+)(?:\s+(\d{4}))?/);
+      if (textMatch) {
+        var day = parseInt(textMatch[1],10), monthIdx = MONTH_INDEX_RO[textMatch[2]];
+        if (monthIdx && day >= 1 && day <= 31) {
+          var year = textMatch[3] ? parseInt(textMatch[3],10) : (function(){
+            var g = now.getFullYear();
+            if (now.getMonth() === 11 && monthIdx === 1) g++; else if (now.getMonth() === 0 && monthIdx === 12) g--;
+            return g;
+          })();
+          var dt2 = new Date(year, monthIdx - 1, day);
+          if (!isNaN(dt2.getTime())) return dt2;
+        }
+      }
+      return null;
+    }
+    // FIX: înainte, orice text de categorie neidentificat cădea implicit pe "stagiune-occ" (return
+    // necondiționat la final). Dacă backend-ul crea (din greșeală, sau printr-o editare manuală în
+    // Sheet) un cap de categorie cu text ușor diferit de eticheta deja afișată pentru "Stagiune OCC",
+    // cele două texte distincte tot ajungeau pe același slug, iar randProgram() le afișa ca DOUĂ
+    // blocuri separate cu aceeași etichetă vizuală — categoria "duplicat" raportată în audit. Acum
+    // "Stagiune OCC" trebuie recunoscută explicit (ca și celelalte două categorii), iar orice text
+    // cu adevărat neidentificat primește propriul slug ("alt-categorie") și se randează separat,
+    // în loc să fie înghițit silențios în categoria greșită.
+    function getCatSlug(catName){ var norm = Utils.normalize(catName); if (norm.includes("school of musical")) return "school-of-musical"; if (norm.includes("alte activitati")) return "alte-activitati"; if (norm.includes("stagiune occ")) return "stagiune-occ"; return "alt-categorie"; }
+    function generateId(){ return Math.random().toString(36).substr(2,9); }
+    function slugify(str){ return Utils.normalize(str).replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,""); }
+    function parseTimeValue(timeStr){ if (!timeStr) return 9999; var clean = timeStr.replace(',', '.').replace(/[^0-9.]/g,''), num = parseFloat(clean); return isNaN(num) ? 9999 : num; }
+
+    function buildProgram(rows){
+      var events = [], daysSeen = [], currentDay = null, currentCategory = null, rowIndex = 0;
+      for (var i=0;i<rows.length;i++){
+        var cols = [0,1,2,3,4].map(function(idx){ return (rows[i][idx] !== undefined ? rows[i][idx] : "").trim(); }); rowIndex++;
+        var c0=cols[0], c1=cols[1], c2=cols[2], c3=cols[3], c4=cols[4], normC0 = Utils.normalize(c0);
+        if (!c0 && !c1 && !c2 && !c3 && !c4) continue;
+        if (normC0 === "ora") continue;
+        if (normC0.indexOf("start saptamana") !== -1) continue; // rând marcaj intern separator de săptămâni — nu se randează
+        if (c0 && (!c1 && !c2 && !c3 && !c4)){
+          var isCategory = ["stagiune occ","school of musical","alte activitati"].some(function(kw){ return normC0.includes(Utils.normalize(kw)); });
+          if (isCategory){ currentCategory = c0; } else { currentDay = c0; currentCategory = null; if (daysSeen.indexOf(currentDay) === -1) daysSeen.push(currentDay); }
+          continue;
+        }
+        if (c0 && (c1||c2||c3||c4)){
+          events.push({ id: generateId(), rowIndex: rowIndex, zi: currentDay || "Fără zi specificată", categorie: currentCategory || "Alte activități", ora:c0, sala:c1, activitate_distributie:c2, coordonatori:c3, necesar_tehnic:c4 });
+          if (currentDay && daysSeen.indexOf(currentDay) === -1) daysSeen.push(currentDay);
+        }
+      }
+      return { events: events, daysSeen: daysSeen };
+    }
+
+function groupProgram(events, daysList){
+      var map = new Map();
+      // Inițializăm toate zilele găsite în tabel
+      daysList.forEach(function(d){ map.set(d, new Map()); });
+      
+      events.forEach(function(ev){
+        if (!map.has(ev.zi)) map.set(ev.zi, new Map()); 
+        var catMap = map.get(ev.zi);
+        if (!catMap.has(ev.categorie)) catMap.set(ev.categorie, []); 
+        catMap.get(ev.categorie).push(ev);
+      });
+      map.forEach(function(catMap){ catMap.forEach(function(list){ list.sort(function(a,b){ return parseTimeValue(a.ora)-parseTimeValue(b.ora); }); }); }); 
+      return map;
+    }
+
+    function applyDayFilter(daySlug){
+      var sections = contentEl.querySelectorAll('.day-section'), firstVisible = null;
+      sections.forEach(function(sec){
+        var match = (daySlug === "__all__") || (sec.dataset.slug === daySlug);
+        if (!sec.classList.contains('search-hidden')) { sec.classList.toggle('is-hidden', !match); }
+        if (match && !firstVisible) firstVisible = sec;
+      });
+      if (daySlug !== "__all__" && firstVisible){ firstVisible.scrollIntoView({ behavior:'smooth', block:'start' }); }
+    }
+
+    function renderDropdown(days){
+      var daysDropdown = document.getElementById('sapt-days-dropdown'); if (!daysDropdown) return;
+      var html = '<option value="__all__">'+t('days_dropdown_all')+'</option>';
+      days.forEach(function(day){ html += '<option value="'+Utils.escapeHtml(slugify(day))+'">'+Utils.escapeHtml(translateDateLabel(formatNiceDate(day)))+'</option>'; });
+      daysDropdown.innerHTML = html; daysDropdown.onchange = function(e){ applyDayFilter(e.target.value); };
+    }
+
+    function renderCard(ev){
+      var lines = (ev.activitate_distributie || '').split('\n'), htmlActivity = '<div class="activity-title">' + Utils.parseFormatting(lines[0] || '') + '</div>';
+      if (lines.slice(1).join('\n').trim()) { htmlActivity += '<div class="activity-distrib">' + Utils.parseFormatting(lines.slice(1).join('\n')) + '</div>'; }
+      return '<div class="card card-'+getCatSlug(ev.categorie)+'" data-id="'+ev.id+'" data-search="'+Utils.escapeHtml(Utils.normalize([ev.ora,ev.sala,ev.activitate_distributie,ev.coordonatori,ev.necesar_tehnic,ev.categorie,ev.zi].join(' ')))+'">' +
+          '<div class="col-time"><span class="badge-time">'+(Utils.parseFormatting(ev.ora)||'00:00')+'</span></div>' +
+          '<div class="col-room"><span class="badge-room '+(!ev.sala?'empty-badge':'')+'">📍 '+Utils.escapeHtml(ev.sala||'Fără sală')+'</span></div>' +
+          '<div class="col-activity">'+htmlActivity+'</div>' +
+          '<div class="col-coord"><div class="col-header-label">'+t('col_coordonatori')+'</div><div class="col-text">'+Utils.parseFormatting(ev.coordonatori||'-')+'</div></div>' +
+          '<div class="col-tech"><div class="col-header-label">'+t('col_necesar_tehnic')+'</div><div class="col-text">'+Utils.parseFormatting(ev.necesar_tehnic||'-')+'</div></div></div>';
+    }
+
+    function renderProgram(){
+      var editOn = isEditOn('saptamanal') && canEdit; 
+      document.getElementById('mod-saptamanal').classList.toggle('edit-on', editOn); 
+      addFab.hidden = !editOn;
+      
+      var grouped = groupProgram(PROGRAM, DAY_ORDER);
+      if (grouped.size === 0){ contentEl.innerHTML = '<div class="status-msg">Nu au fost găsite evenimente.</div>'; return; }
+      
+      var html = "";
+      DAY_ORDER.forEach(function(day){
+        if (!grouped.has(day)) return; 
+        var catMap = grouped.get(day), totalInDay = 0; 
+        catMap.forEach(function(list){ totalInDay += list.length; });
+        
+        html += '<section class="day-section" data-slug="'+Utils.escapeHtml(slugify(day))+'"><div class="day-header"><h2>'+Utils.escapeHtml(translateDateLabel(formatNiceDate(day)))+'</h2><span class="day-count">'+totalInDay+' activități</span></div>';
+        
+        // Definim categoriile de bază care vrem să apară mereu
+        var baseCats = ["Stagiune OCC", "School of Musical", "Alte activități"];
+        var finalCats = [];
+        
+        // Evităm duplicarea dacă în tabel ai scris variatiuni (ex: "Stagiune OCC (repetiții)")
+        baseCats.forEach(function(bc){
+            var found = false;
+            catMap.forEach(function(list, c){
+                if (getCatSlug(c) === getCatSlug(bc)) { finalCats.push(c); found = true; }
+            });
+            if (!found) finalCats.push(bc);
+        });
+        
+        catMap.forEach(function(list, c){
+            if (finalCats.indexOf(c) === -1) finalCats.push(c);
+        });
+
+        // Randăm fiecare categorie
+        finalCats.forEach(function(categorie){
+          var list = catMap.has(categorie) ? catMap.get(categorie) : [];
+          html += '<div class="category-block"><span class="category-label cat-'+getCatSlug(categorie)+'">'+Utils.escapeHtml(categorie)+'</span><div class="cards-grid">';
+          
+          if (list.length > 0) {
+              list.forEach(function(ev){ html += renderCard(ev); });
+          } else {
+              // Mesajul pentru secțiunile goale
+              html += '<div class="card" style="display:block; text-align:center; padding: 12px; color: var(--muted); font-size: 13.5px; border: 1px dashed var(--border); box-shadow: none; background: transparent;">Fără activitate programată</div>';
+          }
+          
+          html += '</div></div>';
+        }); 
+        
+        html += '</section>';
+      });
+      contentEl.innerHTML = html; 
+      renderDropdown(DAY_ORDER.filter(function(d){ return grouped.has(d); })); 
+      setTimeout(syncHeaderHeight, 50);
+    }
+
+    function applySearch(rawQuery){
+      var query = Utils.normalize(rawQuery);
+      var rawTerm = (rawQuery || '').trim();
+      contentEl.querySelectorAll('.day-section').forEach(function(daySec){
+        var visibleCardsInDay = 0;
+        daySec.querySelectorAll('.category-block').forEach(function(catBlock){
+          var visibleCardsInCat = 0;
+          catBlock.querySelectorAll('.card').forEach(function(card){
+            // Verificăm dacă este cardul "Fără activitate"
+            if (!card.hasAttribute('data-search')) {
+                card.classList.toggle('is-hidden', query.length > 0);
+                if (query.length === 0) { visibleCardsInCat++; visibleCardsInDay++; }
+                return;
+            }
+            var match = !query || (card.dataset.search || "").includes(query);
+            card.classList.toggle('is-hidden', !match);
+            if (match) { visibleCardsInCat++; visibleCardsInDay++; }
+            // Evidențiază termenul căutat direct în card (sală, distribuție, coordonatori, necesar tehnic)
+            if (match && rawTerm) { Utils.highlightMatches(card, rawTerm); } else { Utils.clearHighlights(card); }
+          });
+          catBlock.classList.toggle('is-hidden', visibleCardsInCat === 0);
+        });
+        var hasMatch = visibleCardsInDay > 0; daySec.classList.toggle('is-hidden', !hasMatch); daySec.classList.toggle('search-hidden', !hasMatch);
+      });
+      var daysDropdown = document.getElementById('sapt-days-dropdown'); if (daysDropdown && daysDropdown.value !== '__all__') applyDayFilter(daysDropdown.value);
+    }
+
+    /* ============ NAVIGARE AUTOMATĂ LA ZIUA CURENTĂ ============
+       Găsește, dintre zilele afișate (DAY_ORDER), pe cea mai apropiată de data de azi
+       și derulează pagina la secțiunea ei. Dacă nicio zi din tabel nu poate fi
+       recunoscută ca dată calendaristică (ex. etichete libere, fără dată), se derulează
+       fără eroare la prima zi disponibilă — comportamentul actual rămâne neschimbat. */
+    function findClosestDay(){
+      if (!DAY_ORDER.length) return null;
+      var todayDate = new Date(); todayDate.setHours(0,0,0,0);
+      var best = null, bestDiff = Infinity;
+      DAY_ORDER.forEach(function(day){
+        var dt = parseZiToDate(day); if (!dt) return;
+        dt.setHours(0,0,0,0);
+        var diff = Math.abs(dt.getTime() - todayDate.getTime());
+        if (diff < bestDiff) { bestDiff = diff; best = day; }
+      });
+      return best || DAY_ORDER[0]; // fallback: prima zi disponibilă, fără eroare
+    }
+    function scrollToToday(){
+      var target = findClosestDay();
+      if (!target) return; // nu există nicio zi în program — nu facem nimic
+      var section = contentEl.querySelector('.day-section[data-slug="' + slugify(target) + '"]');
+      if (!section) return;
+      setTimeout(function(){
+        // .day-section are scroll-margin-top setat la înălțimea antetului fix, deci
+        // block:'start' lasă automat spațiul necesar sub bara fixă (resincronizăm
+        // --header-h chiar înainte, pentru cazul în care antetul și-a schimbat înălțimea).
+        syncHeaderHeight();
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        section.classList.add('focus-flash');
+        setTimeout(function(){ section.classList.remove('focus-flash'); }, 2200);
+      }, 80);
+    }
+
+    function openEditModal(evData){ currentEditId = evData.id; editOra.value = evData.ora || ''; editSala.value = evData.sala || ''; editActivitate.value = evData.activitate_distributie || ''; editCoord.value = evData.coordonatori || ''; editTech.value = evData.necesar_tehnic || ''; editOverlay.classList.add('show'); }
+    function closeEditModal(){ editOverlay.classList.remove('show'); currentEditId = null; }
+    function openAddModal(){
+      var htmlOpts = ''; DAY_ORDER.forEach(function(d){ htmlOpts += '<option value="'+Utils.escapeHtml(d)+'">'+Utils.escapeHtml(formatNiceDate(d))+'</option>'; });
+      htmlOpts += '<option value="__CUSTOM__">➕ Zi nouă...</option>'; addZiSelect.innerHTML = htmlOpts; addZiSelect.value = DAY_ORDER[0] || '__CUSTOM__';
+      addZiCustom.style.display = (addZiSelect.value === '__CUSTOM__') ? 'block' : 'none'; addZiCustom.value = ''; addOra.value = ''; addSala.value = ''; addActivitate.value = ''; addCoord.value = ''; addTech.value = ''; addOverlay.classList.add('show');
+    }
+    function closeAddModal(){ addOverlay.classList.remove('show'); }
+    function loadProgram(opts){
+      var scrollAfter = !!(opts && opts.scrollToday);
+      document.getElementById('sapt-status-msg') && (contentEl.innerHTML = '<div class="status-msg" id="sapt-status-msg">Se încarcă programul...</div>');
+      return apiCall('get_saptamanal', {}).then(function(res){
+        if (res.status !== 'succes'){ contentEl.innerHTML = '<div class="status-msg">Eroare la preluarea datelor.</div>'; return false; }
+        canEdit = Session.current.config.canEditSapt; var built = buildProgram(res.date); PROGRAM = built.events; DAY_ORDER = built.daysSeen;
+        if (PROGRAM.length === 0){ contentEl.innerHTML = '<div class="status-msg">Nu s-au găsit date.</div>'; return true; }
+        renderProgram(); if (scrollAfter) scrollToToday(); return true;
+      });
+    }
+
+    var staticBound = false;
+    function bindStaticEvents(){
+      var saptToggle = document.getElementById('sapt-search-toggle');
+      if (saptToggle) { saptToggle.addEventListener('click', function(){ var wrap = document.getElementById('sapt-search-wrap'), inp = document.getElementById('sapt-search-input'), isShowing = wrap.classList.toggle('show'); this.classList.toggle('active', isShowing); if (isShowing) { inp.focus(); } else { inp.value = ''; applySearch(''); } setTimeout(syncHeaderHeight, 250); }); }
+      var executeSearch = debounce(function(val) { applySearch(val); }, 300), searchInput = document.getElementById('sapt-search-input'); if (searchInput) { searchInput.addEventListener('input', function(e){ executeSearch(e.target.value); }); }
+      var daysDropdown = document.getElementById('sapt-days-dropdown'); if (daysDropdown) { daysDropdown.addEventListener('change', function(e){ applyDayFilter(e.target.value); }); }
+      contentEl.addEventListener('click', function(e){ if (!(isEditOn('saptamanal') && canEdit)) return; var card = e.target.closest('.card'); if (!card) return; var evData = PROGRAM.find(function(item){ return item.id === card.getAttribute('data-id'); }); if (evData) openEditModal(evData); });
+      document.getElementById('sapt-edit-close').onclick = closeEditModal; document.getElementById('sapt-edit-cancel').onclick = closeEditModal;
+      document.getElementById('sapt-edit-save').onclick = function(){
+        if (!currentEditId) return; var index = PROGRAM.findIndex(function(item){ return item.id === currentEditId; }); if (index === -1) return;
+        var updatedItem = PROGRAM[index]; updatedItem.ora = editOra.value.trim(); updatedItem.sala = editSala.value.trim(); updatedItem.activitate_distributie = editActivitate.value.trim(); updatedItem.coordonatori = editCoord.value.trim(); updatedItem.necesar_tehnic = editTech.value.trim();
+        closeEditModal(); toast("⏳ Se salvează...");
+        apiCall('save_saptamanal_row', { row: updatedItem.rowIndex, ora: updatedItem.ora, sala: updatedItem.sala, activitate: updatedItem.activitate_distributie, coordonatori: updatedItem.coordonatori, necesar: updatedItem.necesar_tehnic }).then(function(result){
+          if (result.status === 'succes') { toast("✅ Salvat cu succes!"); } else { alert(result.mesaj || "A apărut o eroare la salvare."); }
+          renderProgram(); var sInput = document.getElementById('sapt-search-input'); if (sInput) applySearch(sInput.value);
+        });
+      };
+      if (editDelete) editDelete.onclick = function(){
+        if (!currentEditId) return; var index = PROGRAM.findIndex(function(item){ return item.id === currentEditId; }); if (index === -1) return;
+        var itemDeSters = PROGRAM[index];
+        var confirmare = window.prompt('Ești sigur că vrei să ștergi? Scrie cuvântul STERGE pentru a confirma.');
+        if (confirmare === null) return; // utilizatorul a apăsat Anulează
+        if (String(confirmare).trim().toUpperCase() !== 'STERGE') { toast("⚠️ Ștergere anulată — cuvântul de confirmare nu a fost corect."); return; }
+        closeEditModal(); toast("⏳ Se șterge...");
+        apiCall('delete_saptamanal_row', { row: itemDeSters.rowIndex }).then(function(result){
+          if (result.status === 'succes') { toast("🗑️ Activitate ștearsă."); } else { alert(result.mesaj || "A apărut o eroare la ștergere."); }
+          loadProgram();
+        });
+      };
+      addFab.onclick = openAddModal; document.getElementById('sapt-add-close').onclick = closeAddModal; document.getElementById('sapt-add-cancel').onclick = closeAddModal; addZiSelect.onchange = function(){ addZiCustom.style.display = (addZiSelect.value === '__CUSTOM__') ? 'block' : 'none'; };
+      document.getElementById('sapt-add-save').onclick = function(){
+        var ziEsteNoua = (addZiSelect.value === '__CUSTOM__');
+        var ziFinala = ziEsteNoua ? addZiCustom.value.trim() : addZiSelect.value.trim(), oraVal = addOra.value.trim();
+        if (!ziFinala || !oraVal){ toast("⚠️ Ziua și Ora sunt obligatorii!"); return; }
+        closeAddModal(); toast("⏳ Se adaugă...");
+        apiCall('add_saptamanal_row', { zi: ziFinala, ziEsteNoua: ziEsteNoua, categorie: addCat.value, ora: oraVal, sala: addSala.value.trim(), activitate: addActivitate.value.trim(), coordonatori: addCoord.value.trim(), necesar: addTech.value.trim() }).then(function(result){
+          if (result.status === 'succes'){ toast("✅ Activitate adăugată!"); loadProgram(); }
+          else { alert(result.mesaj || "A apărut o eroare la adăugarea activității."); }
+        });
+      };
+    }
+    return { init: function(){ if (!staticBound){ bindStaticEvents(); staticBound = true; } loadProgram({ scrollToday: true }); }, onEditModeChange: function(){ renderProgram(); var sInput = document.getElementById('sapt-search-input'); if (sInput) applySearch(sInput.value); }, refresh: function(){ return loadProgram({ scrollToday: true }); } };
+  })();
+
+  /* MODUL HR */
+  var HrModule = (function(){
+    var STATUS_OPTIONS = ['Depusă', 'În circuit (Fizic)', 'Aprobată', 'Respinsă', 'Anulată'];
+    var sigCanvas, sigCtx, isSigDrawing = false, isSigEmpty = true;
+
+    function descarcaFisierLocally(base64Data, filename) {
+      var linkSource = 'data:application/pdf;base64,' + base64Data;
+      var downloadLink = document.createElement("a"); downloadLink.href = linkSource; downloadLink.download = filename;
+      document.body.appendChild(downloadLink); downloadLink.click(); document.body.removeChild(downloadLink);
+    }
+
+    function initSignature() {
+      sigCanvas = document.getElementById('signature-pad');
+      if (!sigCanvas) return;
+      sigCtx = sigCanvas.getContext('2d');
+      var rect = sigCanvas.parentElement.getBoundingClientRect();
+      sigCanvas.width = rect.width; sigCanvas.height = 160;
+      
+      sigCtx.fillStyle = '#ffffff';
+      sigCtx.fillRect(0, 0, sigCanvas.width, sigCanvas.height);
+
+      sigCtx.lineWidth = 3; sigCtx.lineCap = 'round'; sigCtx.strokeStyle = '#1E2A45'; 
+
+      function getPos(e) { var r = sigCanvas.getBoundingClientRect(), clientX = e.touches ? e.touches[0].clientX : e.clientX, clientY = e.touches ? e.touches[0].clientY : e.clientY; return { x: clientX - r.left, y: clientY - r.top }; }
+      function startDraw(e) { e.preventDefault(); isSigDrawing = true; isSigEmpty = false; var pos = getPos(e); sigCtx.beginPath(); sigCtx.moveTo(pos.x, pos.y); }
+      function draw(e) { if (!isSigDrawing) return; e.preventDefault(); var pos = getPos(e); sigCtx.lineTo(pos.x, pos.y); sigCtx.stroke(); }
+      function endDraw(e) { if(isSigDrawing){ e.preventDefault(); isSigDrawing = false; } }
+
+      sigCanvas.addEventListener('mousedown', startDraw); sigCanvas.addEventListener('mousemove', draw); window.addEventListener('mouseup', endDraw);
+      sigCanvas.addEventListener('touchstart', startDraw, {passive: false}); sigCanvas.addEventListener('touchmove', draw, {passive: false}); window.addEventListener('touchend', endDraw);
+    }
+
+    return {
+      init: function() { this.fetchData(); setTimeout(initSignature, 300); },
+      clearSignature: function() { 
+        if(!sigCtx) return; 
+        sigCtx.fillStyle = '#ffffff';
+        sigCtx.fillRect(0, 0, sigCanvas.width, sigCanvas.height);
+        isSigEmpty = true; 
+      },
+      setRequestType: function(type) {
+        document.getElementById('hr-type-btn-colaborare').classList.toggle('active', type === 'colaborare'); document.getElementById('hr-type-btn-cfs').classList.toggle('active', type === 'cfs');
+        document.querySelectorAll('#hr-panel-online .field-group').forEach(function(group){
+          if (group.dataset.type === type) { group.classList.add('active'); group.querySelectorAll('input, textarea').forEach(function(el){ el.setAttribute('required', 'true'); }); } 
+          else { group.classList.remove('active'); group.querySelectorAll('input, textarea').forEach(function(el){ el.removeAttribute('required'); }); }
+        });
+      },
+      handleStartDateChange: function(startId, endId) {
+        var startEl = document.getElementById(startId), endEl = document.getElementById(endId);
+        if (startEl && startEl.value) { endEl.min = startEl.value; if (endEl.value && endEl.value < startEl.value) endEl.value = startEl.value; } else { endEl.removeAttribute('min'); }
+      },
+      submitOnlineForm: function(e) {
+        e.preventDefault();
+        if (isSigEmpty) { showAlert('Semnătură lipsă', 'Te rugăm să semnezi cererea cu degetul sau mouse-ul în chenarul indicat.'); return; }
+
+        var type = document.getElementById('hr-type-btn-colaborare').classList.contains('active') ? 'colaborare' : 'cfs';
+        var btn = document.getElementById('hr-btn-submit-online');
+        var formDate = { 
+          tip: type, nume: document.getElementById('hr-online-nume').value.trim(), functie: document.getElementById('hr-online-functie').value.trim(), 
+          start: document.getElementById('hr-online-start').value, end: document.getElementById('hr-online-end').value, observatii: document.getElementById('hr-online-observatii').value.trim(),
+          semnaturaBase64: sigCanvas.toDataURL('image/png')
+        };
+        if (type === 'colaborare') { formDate.institutie = document.getElementById('hr-online-institutie').value.trim(); formDate.descriere = document.getElementById('hr-online-descriere-colaborare').value.trim(); } 
+        else { formDate.descriere = document.getElementById('hr-online-descriere-cfs').value.trim(); }
+        
+        if (formDate.end < formDate.start) { showAlert('Eroare', 'Data de sfârșit este înaintea datei de început.'); return; }
+
+        btn.disabled = true; btn.textContent = "Se generează...";
+        apiCall('submit_hr_cerere_online', formDate).then(function(res){
+          btn.disabled = false; btn.textContent = "Semnează & Trimite";
+          if(res.status === 'succes') {
+            showAlert('Succes', 'Cererea a fost trimisă cu succes. Exemplarul tău se va descărca acum.');
+            descarcaFisierLocally(res.pdfBase64, res.numeFisier);
+            e.target.reset(); HrModule.clearSignature(); HrModule.fetchData();
+          } else {
+            showAlert('Atenție', res.mesaj || "A apărut o eroare necunoscută.");
+          }
+        });
+      },
+      fetchData: function() {
+        var tBody = document.getElementById('hr-tracking-body'), trackingSec = document.getElementById('hr-tracking-section'), conf = Session.current.config;
+        if (!conf.canViewHR && !conf.canEditHR) { trackingSec.hidden = true; return; }
+        trackingSec.hidden = false; tBody.innerHTML = '<tr><td colspan="7" class="status-msg">Se încarcă cererile...</td></tr>';
+        
+        apiCall('get_hr_cererile', {}).then(function(res){
+          if (res.status === 'succes') { HrModule.renderTracking(res.cereri || [], conf.canEditHR); } 
+          else { tBody.innerHTML = '<tr><td colspan="7" class="status-msg" style="color:var(--err)">Eroare la preluare: ' + Utils.escapeHtml(res.mesaj) + '</td></tr>'; }
+        });
+      },
+      renderTracking: function(cereri, canEditStatus) {
+        var tBody = document.getElementById('hr-tracking-body');
+        if (!cereri.length) { tBody.innerHTML = '<tr><td colspan="7" class="status-msg">Nu există cereri înregistrate.</td></tr>'; return; }
+        tBody.innerHTML = ''; document.getElementById('hr-table-title').textContent = canEditStatus ? "Toate Cererile (Vizualizare Admin)" : "Cererile Mele";
+        cereri.reverse().forEach(function(c) {
+          var tr = document.createElement('tr'), perioada = Utils.escapeHtml(c.start) + ' → ' + Utils.escapeHtml(c.end), linkDoc = c.url ? '<a href="' + Utils.escapeHtml(c.url) + '" target="_blank">📄 Deschide</a>' : '—', statusCellHtml;
+          if (canEditStatus) {
+            var opts = STATUS_OPTIONS.map(function(s){ return '<option value="' + Utils.escapeHtml(s) + '"' + (s === c.status ? ' selected' : '') + '>' + Utils.escapeHtml(s) + '</option>'; }).join('');
+            statusCellHtml = '<select class="hr-status-select">' + opts + '</select>';
+          } else {
+            var cls = (c.status==='Aprobată')?'hr-badge-ok':(c.status==='Respinsă')?'hr-badge-err':(c.status==='Anulată')?'hr-badge-canceled':(c.status==='În circuit (Fizic)')?'hr-badge-warn':'hr-badge-neutral';
+            statusCellHtml = '<span class="hr-badge ' + cls + '">' + Utils.escapeHtml(c.status) + '</span>';
+          }
+          tr.innerHTML = '<td>' + Utils.escapeHtml(c.timestamp ? c.timestamp.substring(0, 10) : '') + '</td><td>' + Utils.escapeHtml(c.nume) + '<div class="muted-sub">' + Utils.escapeHtml(c.email) + '</div></td><td>' + Utils.escapeHtml(c.tip) + '</td><td>' + perioada + '</td><td>' + statusCellHtml + '</td><td>' + linkDoc + '</td><td>' + Utils.escapeHtml(c.ultimaActualizare ? c.ultimaActualizare.substring(0, 10) : '') + '</td>';
+          tBody.appendChild(tr);
+          if (canEditStatus) { var select = tr.querySelector('.hr-status-select'), valAnterioara = select.value; select.addEventListener('change', function() { HrModule.updateStatus(c.id, select.value, select, valAnterioara); }); }
+        });
+      },
+      updateStatus: function(idCerere, statusNou, selectEl, valAnterioara) {
+        selectEl.disabled = true;
+        apiCall('update_hr_status', { idCerere: idCerere, statusNou: statusNou }).then(function(res){
+          if (res.status === 'succes') { toast('Status actualizat.'); HrModule.fetchData(); } 
+          else { showAlert('Eroare', res.mesaj || 'Nu s-a putut schimba statusul.'); selectEl.value = valAnterioara; selectEl.disabled = false; }
+        });
+      }
+    };
+  })();
+
+  /* ============ MODUL ISTORIC MODIFICĂRI (SUPERADMIN) ============ */
+  var IstoricModule = (function(){
+    var staticBound = false;
+
+    function bindStaticEvents(){
+      var btnRefresh = document.getElementById('ist-refresh-btn');
+      if (btnRefresh) btnRefresh.addEventListener('click', function(){ IstoricModule.fetchData(); });
+    }
+
+    function renderTracking(inregistrari){
+      var tBody = document.getElementById('ist-tracking-body');
+      if (!inregistrari.length) { tBody.innerHTML = '<tr><td colspan="5" class="status-msg">Nu există încă nicio modificare înregistrată.</td></tr>'; return; }
+      tBody.innerHTML = '';
+      inregistrari.forEach(function(r){
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + Utils.escapeHtml(r.dataOra) + '</td>' +
+          '<td>' + Utils.escapeHtml(r.email) + '</td>' +
+          '<td><span class="ist-badge">' + Utils.escapeHtml(r.sectiune) + '</span></td>' +
+          '<td>' + Utils.escapeHtml(r.actiune) + '</td>' +
+          '<td class="ist-detalii">' + Utils.escapeHtml(r.detalii) + '</td>';
+        tBody.appendChild(tr);
+      });
+    }
+
+    return {
+      init: function(){ if (!staticBound){ bindStaticEvents(); staticBound = true; } this.fetchData(); },
+      fetchData: function(){
+        var tBody = document.getElementById('ist-tracking-body');
+        tBody.innerHTML = '<tr><td colspan="5" class="status-msg">Se încarcă istoricul...</td></tr>';
+        apiCall('preia_istoric_modificari', {}).then(function(res){
+          if (res.status === 'succes') { renderTracking(res.inregistrari || []); }
+          else { tBody.innerHTML = '<tr><td colspan="5" class="status-msg" style="color:var(--sm)">Eroare la preluare: ' + Utils.escapeHtml(res.mesaj || '') + '</td></tr>'; }
+        });
+      }
+    };
+  })();
+
+  /* ============ WIDGET FEEDBACK INTERN (JS) ============ */
+  (function(){
+    var fbFab = document.getElementById('fb-fab');
+    var fbOverlay = document.getElementById('fb-overlay');
+    var fbFormView = document.getElementById('fb-form-view');
+    var fbSuccessView = document.getElementById('fb-success-view');
+    var fbTip = document.getElementById('fb-tip');
+    var fbZona = document.getElementById('fb-zona');
+    var fbMesaj = document.getElementById('fb-mesaj');
+    var fbError = document.getElementById('fb-error');
+    var fbBtnTrimite = document.getElementById('fb-btn-trimite');
+    var fbBtnAnuleaza = document.getElementById('fb-btn-anuleaza');
+    var fbBtnInchide = document.getElementById('fb-btn-inchide');
+    var fbModalClose = document.getElementById('fb-modal-close');
+    var fbSuccessText = document.getElementById('fb-success-text');
+    var FB_MESAJ_SUCCES = 'Mulțumim! Feedback-ul a fost înregistrat cu succes.';
+
+    function openFeedback(){
+      fbTip.value = ''; fbZona.value = ''; fbMesaj.value = ''; fbError.textContent = '';
+      fbBtnTrimite.disabled = false; fbBtnTrimite.textContent = 'Trimite';
+      fbFormView.hidden = false; fbSuccessView.hidden = true;
+      fbOverlay.classList.add('show');
+    }
+    function closeFeedback(){ fbOverlay.classList.remove('show'); }
+
+    fbFab.addEventListener('click', openFeedback);
+    fbBtnAnuleaza.addEventListener('click', closeFeedback);
+    fbModalClose.addEventListener('click', closeFeedback);
+    fbBtnInchide.addEventListener('click', closeFeedback);
+    fbOverlay.addEventListener('click', function(e){ if (e.target === fbOverlay) closeFeedback(); });
+
+    fbBtnTrimite.addEventListener('click', function(){
+      var tip = fbTip.value, zona = fbZona.value, mesaj = fbMesaj.value.trim();
+      fbError.textContent = '';
+      if (!tip || !zona || !mesaj){
+        fbError.textContent = 'Completează toate câmpurile înainte de a trimite.';
+        return;
+      }
+
+      fbBtnTrimite.disabled = true;
+      fbBtnTrimite.textContent = 'Se trimite...';
+
+      apiCall('trimite_feedback', {
+        tip: tip,
+        zona: zona,
+        mesaj: mesaj,
+        userAgent: navigator.userAgent
+      }).then(function(res){
+        if (res && res.status === 'succes') {
+          fbSuccessText.textContent = res.mesaj || FB_MESAJ_SUCCES;
+          fbFormView.hidden = true; fbSuccessView.hidden = false;
+        } else {
+          fbBtnTrimite.disabled = false; fbBtnTrimite.textContent = 'Trimite';
+          fbError.textContent = (res && res.mesaj) || 'A apărut o eroare la trimitere. Încearcă din nou.';
+        }
+      });
+    });
+  })();
+
+  window.HrModule = HrModule;
+
+  // ============ BOOTSTRAP LA PORNIRE (Nivel 3, headless) ============
+  // Dacă URL-ul conține ?t=<token> (link salvat pe Home Screen iOS — vezi audit
+  // 17.09.2026 / 19.09.2026), NU avem încredere oarbă în el: îl revalidăm prin API
+  // ('restore_session', echivalentul client-side al fostului bootstrap din doGet(),
+  // eliminat) înainte de a-l trata ca sesiune activă. Altfel, cădem pe fluxul normal —
+  // Session.load() din localStorage/sessionStorage.
+  function afiseazaLogin_(){ document.getElementById('auth-screen').hidden = false; }
+
+  var tokenDinUrl = null;
+  try { tokenDinUrl = new URLSearchParams(window.location.search).get('t'); } catch(eParseUrl){ tokenDinUrl = null; }
+
+  if (tokenDinUrl){
+    apiCall('restore_session', { token: tokenDinUrl }).then(function(res){
+      try { window.history.replaceState(null, '', window.location.pathname); } catch(eClean){} // curăță ?t= din URL
+      if (res && res.status === 'succes'){
+        Session.save({ token: res.token, rolBrut: res.rolBrut, config: res.config, nume: res.nume, remember: true });
+        try{ refreshManifestLink_(res.token); }catch(eManifest){}
+        enterApp();
+      } else {
+        refreshManifestLink_();
+        afiseazaLogin_();
+      }
+    });
+  } else {
+    Session.load();
+    if (Session.current && Session.current.token){ refreshManifestLink_(Session.current.token); enterApp(); }
+    else { refreshManifestLink_(); afiseazaLogin_(); }
+  }
+})();
+</script>
+</body>
+</html>
