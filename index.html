@@ -1045,6 +1045,8 @@
       err_generic_login: "Eroare la autentificare.",
       err_missing_otp: "Introdu codul primit pe email.",
       err_wrong_otp: "Cod incorect.",
+      err_server_indisponibil: "Serverul răspunde momentan cu întârziere (posibilă pornire la rece). Te rugăm să încerci din nou în câteva secunde.",
+      err_server_timeout: "Serverul nu a răspuns la timp. Verifică conexiunea și încearcă din nou.",
       otp_sent_fallback: "Am trimis un cod pe adresa ",
       nav_home: "Acasă",
       nav_stagiune: "Stagiune",
@@ -1091,6 +1093,8 @@
       err_generic_login: "Login error.",
       err_missing_otp: "Enter the code you received by email.",
       err_wrong_otp: "Incorrect code.",
+      err_server_indisponibil: "The server is responding slowly right now (possible cold start). Please try again in a few seconds.",
+      err_server_timeout: "The server did not respond in time. Check your connection and try again.",
       otp_sent_fallback: "We sent a code to ",
       nav_home: "Home",
       nav_stagiune: "Season",
@@ -1306,15 +1310,60 @@
   // să evite un preflight CORS OPTIONS pe care Apps Script nu-l poate răspunde corect
   // (ContentService nu expune setHeader pentru CORS) — vezi
   // claude/blueprint-migrare-headless-doPost.md, secțiunea 2.
-  function apiCall(action, payload){
+  //
+  // FIX cold-start / răspuns HTML (2026-09-22): la prima accesare după o pauză ("cold
+  // start") sau la o eroare temporară de redirecționare, Apps Script poate răspunde cu
+  // pagina de eroare HTML a Google (începe cu "<!DOCTYPE") în loc de JSON. Înainte,
+  // `r.json()` arunca direct o eroare brută de parsare ("Unexpected token '<' ... is not
+  // valid JSON") care ajungea netradusă în interfață. Acum citim răspunsul ca text și
+  // parsăm noi JSON-ul: dacă parsarea eșuează (sau fetch-ul însuși eșuează / expiră),
+  // reîncercăm automat de câteva ori cu pauză crescândă — la a doua accesare, Apps
+  // Script e de regulă "cald" — iar dacă tot eșuează, întoarcem un mesaj de eroare
+  // prietenos și tradus, fără să blocăm vreodată interfața: apiCall nu aruncă
+  // niciodată, rezolvă mereu cu un obiect { status, mesaj, cod }, exact ca înainte —
+  // deci toate cele 15+ acțiuni care îl folosesc profită automat de fix, fără nicio
+  // modificare la punctele lor de apel.
+  var API_RETRY_MAX = 2;          // reîncercări suplimentare (deci max. 3 încercări în total)
+  var API_RETRY_DELAY_MS = 1200;  // pauză de bază între reîncercări (crește cu fiecare)
+  var API_TIMEOUT_MS = 15000;     // timp maxim de așteptare pe o singură încercare
+
+  function apiSleep_(ms){ return new Promise(function(resolve){ setTimeout(resolve, ms); }); }
+
+  function apiCall(action, payload, _attempt){
     payload = payload || {}; payload.action = action;
     if (!payload.token && Session.current && Session.current.token) payload.token = Session.current.token;
+    var attempt = _attempt || 0;
+
+    var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timeoutId = controller ? setTimeout(function(){ controller.abort(); }, API_TIMEOUT_MS) : null;
+
+    function retryOrFail(mesajFallback){
+      if (attempt < API_RETRY_MAX){
+        return apiSleep_(API_RETRY_DELAY_MS * (attempt + 1)).then(function(){
+          return apiCall(action, payload, attempt + 1);
+        });
+      }
+      return { status: "eroare", cod: "server_indisponibil", mesaj: mesajFallback };
+    }
+
     return fetch(API_URL, {
       method: 'POST',
       redirect: 'follow',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    }).then(function(r){ return r.json(); }).then(function(response){
+      body: JSON.stringify(payload),
+      signal: controller ? controller.signal : undefined
+    }).then(function(r){
+      return r.text();
+    }).then(function(rawText){
+      if (timeoutId) clearTimeout(timeoutId);
+      var response;
+      try {
+        response = JSON.parse(rawText);
+      } catch (eParse){
+        // Nu e JSON valid — cel mai probabil pagina de eroare HTML a Google (cold start).
+        console.warn('[apiCall] răspuns non-JSON pentru "' + action + '" (încercarea ' + (attempt + 1) + '/' + (API_RETRY_MAX + 1) + '):', eParse, rawText ? rawText.slice(0, 200) : rawText);
+        return retryOrFail(t('err_server_indisponibil'));
+      }
       // Tratare centralizată a sesiunii invalide/expirate — { status, mesaj, cod }.
       // `cod` e prezent pe orice eroare legată de sesiune (vezi blueprint, secțiunea 4);
       // gestionat aici o singură dată, ca niciun punct de apel individual (15+ acțiuni)
@@ -1326,7 +1375,10 @@
       }
       return response;
     }).catch(function(error){
-      return { status: "eroare", mesaj: "Eroare server: " + (error && error.message ? error.message : String(error)) };
+      if (timeoutId) clearTimeout(timeoutId);
+      var isAbort = error && error.name === 'AbortError';
+      console.warn('[apiCall] eroare fetch pentru "' + action + '" (încercarea ' + (attempt + 1) + '/' + (API_RETRY_MAX + 1) + '):', error);
+      return retryOrFail(isAbort ? t('err_server_timeout') : t('err_server_indisponibil'));
     });
   }
 
